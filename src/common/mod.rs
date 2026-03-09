@@ -3,3 +3,4 @@ pub mod env;
 pub mod error;
 pub mod redis_pool;
 pub mod state;
+pub mod multipart;

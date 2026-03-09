@@ -5,10 +5,12 @@ use serde::Serialize;
 use tracing::error;
 
 pub type ServiceResult<T> = Result<T, AppError>;
+pub type ServiceResponse<T> = ServiceResult<Json<T>>;
 
 #[derive(Debug)]
 pub enum AppError {
     Unexpected,
+    MalformedRequest,
 }
 
 #[cold]

@@ -1,5 +1,4 @@
-use crate::api::context::RequestContext;
-
-pub async fn handler(ctx: RequestContext) {
-    // TODO: Implement Bancho connection handshake
+/// Technically this would be needed for otp verification
+pub async fn handler() -> &'static str {
+    ""
 }

@@ -5,12 +5,14 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-axum = "0.8.8"
+axum = { version = "0.8.8", features = ["multipart"] }
+base64-simd = "0.8.0"
 chrono = { version = "0.4", features = ["default", "serde"] }
 deadpool = { version = "0.13", features = ["managed", "rt_tokio_1"] }
 dotenv = "0.15.0"
 redis = { version = "1.0.4", features = ["aio", "tokio-comp"] }
 serde = { version = "1.0", features = ["derive"] }
+simple-rijndael = "0.3.2"
 sqlx = { version = "0.8.6", features = ["default", "runtime-tokio", "chrono", "rust_decimal", "mysql"] }
 tokio = { version = "1.50.0", features = ["full"] }
 tracing = "0.1.44"
