@@ -1,12 +1,20 @@
-use std::str::FromStr;
-use simple_rijndael::impls::RijndaelCbc;
-use simple_rijndael::paddings::Pkcs7Padding;
-use axum::body::Bytes;
-use axum::extract::{FromRequest, Multipart as MultipartExtractor, Request};
-use chrono::NaiveDateTime;
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::multipart::{FromMultipart, FromMultipartError, FromMultipartField, Multipart};
-use crate::models::accuracy::Accuracy;
+use crate::common::osu::{DATETIME_FORMAT_STR, format_bool};
+use crate::entities::accuracy::Accuracy;
+use crate::entities::mode::Gamemode;
+use crate::entities::mods::Mods;
+use crate::models::achievements::Achievement;
+use crate::models::beatmaps::Beatmap;
+use crate::models::osu::charts::Chart;
+use axum::body::Bytes;
+use axum::extract::{FromRequest, Multipart as MultipartExtractor, Request};
+use axum::response::{IntoResponse, Response};
+use bitflags::bitflags;
+use chrono::NaiveDateTime;
+use simple_rijndael::impls::RijndaelCbc;
+use simple_rijndael::paddings::Pkcs7Padding;
+use std::str::FromStr;
 
 #[derive(Debug)]
 pub struct SubmitScoreArgs {
@@ -18,8 +26,9 @@ pub struct SubmitScoreArgs {
     pub client_info: ClientHashes,
     pub password_md5: String,
     pub beatmap_md5: String,
-    pub visual_settings: VisualSettings,
-    pub replay_data: Bytes,
+    pub storyboard_md5: Option<String>,
+    // pub visual_settings: VisualSettings,
+    pub replay_data: Option<Bytes>,
     pub anticheat_token: Option<String>,
 }
 
@@ -42,15 +51,103 @@ pub struct ScoreStatistics {
     pub max_combo: u16,
     pub perfect_combo: bool,
     pub achieved_grade: String,
-    pub mods: i32,
+    pub mods: Mods,
     pub passed: bool,
-    pub mode: u8,
+    pub mode: Gamemode,
     // Format: yyMMddHHmmss
     pub client_timestamp: NaiveDateTime,
     pub osu_version: String,
     // In the payload sent by the osu! client,
     // this is represented as spaces following the osu version (lol)
-    pub score_flags: usize,
+    pub score_flags: ScoreFlags,
+}
+
+bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct ScoreFlags: u32 {
+        const Clean = 0;
+        const SpeedHackDetected = 1 << 1;
+        const IncorrectModValue = 1 << 2;
+        const MultipleOsuClients = 1 << 3;
+        const ChecksumFailure = 1 << 4;
+        const FlashlightChecksumIncorrect = 1 << 5;
+        const OsuExecutableChecksum = 1 << 6;
+        const MissingProcessesInList = 1 << 7;
+        const FlashLightImageHack = 1 << 8;
+        const SpinnerHack = 1 << 9;
+        const TransparentWindow = 1 << 10;
+        const FastPress = 1 << 11;
+        const RawMouseDiscrepancy = 1 << 12;
+        const RawKeyboardDiscrepancy = 1 << 13;
+    }
+}
+
+#[derive(Debug)]
+pub enum ScoreSubmissionResult {
+    Ok,
+    Charts(Beatmap, Vec<Chart>, Vec<Achievement>),
+}
+
+impl ScoreSubmissionResult {
+    pub fn osu_format(&self) -> String {
+        match self {
+            ScoreSubmissionResult::Ok => "ok".to_owned(),
+            ScoreSubmissionResult::Charts(beatmap, charts, new_achievements) => {
+                let beatmap_fmt = beatmap.osu_format();
+                let charts_fmt = charts
+                    .iter()
+                    .map(|c| c.osu_format())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let achievements_fmt = new_achievements
+                    .iter()
+                    .map(|a| a.osu_format())
+                    .collect::<Vec<_>>()
+                    .join("/");
+
+                format!("{beatmap_fmt}\n{charts_fmt}|{achievements_fmt}")
+            }
+        }
+    }
+}
+
+impl IntoResponse for ScoreSubmissionResult {
+    fn into_response(self) -> Response {
+        self.osu_format().into_response()
+    }
+}
+
+impl SubmitScoreArgs {
+    pub fn score_md5(&self) -> String {
+        let formatted = format!(
+            "chickenmcnuggets{0}o15{1}{2}smustard{3}{4}uu{5}{6}{7}{8}{9}{10}{11}Q{12}{13}{15}{14}{16}{17}",
+            self.score.stats.accuracy.count_100 + self.score.stats.accuracy.count_300,
+            self.score.stats.accuracy.count_50,
+            self.score.stats.accuracy.count_geki,
+            self.score.stats.accuracy.count_katu,
+            self.score.stats.accuracy.count_miss,
+            self.score.beatmap_md5,
+            self.score.stats.max_combo,
+            format_bool(self.score.stats.perfect_combo),
+            self.score.username,
+            self.score.stats.score,
+            self.score.stats.achieved_grade,
+            self.score.stats.mods.bits(),
+            format_bool(self.score.stats.passed),
+            self.score.stats.mode as u8,
+            self.score
+                .stats
+                .client_timestamp
+                .format(DATETIME_FORMAT_STR),
+            self.score.stats.osu_version,
+            self.client_info.client_hash,
+            self.storyboard_md5
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or(""),
+        );
+        format!("{:x}", md5::compute(&formatted))
+    }
 }
 
 impl FromStr for ScoreAttributes {
@@ -62,7 +159,7 @@ impl FromStr for ScoreAttributes {
         let username = split.next().ok_or(AppError::MalformedRequest)?;
         let (username, is_donor_flag) = match username.strip_suffix(' ') {
             Some(username) => (username, true),
-            None => (username, false)
+            None => (username, false),
         };
 
         let score_md5 = split.next().ok_or(AppError::MalformedRequest)?;
@@ -105,27 +202,43 @@ impl FromStr for ScoreStatistics {
 
         // Parse all params
         let accuracy = Accuracy {
-            count_300: count_300.parse::<u16>().map_err(|_| AppError::MalformedRequest)?,
-            count_100: count_100.parse::<u16>().map_err(|_| AppError::MalformedRequest)?,
-            count_50: count_50.parse::<u16>().map_err(|_| AppError::MalformedRequest)?,
-            count_geki: count_geki.parse::<u16>().map_err(|_| AppError::MalformedRequest)?,
-            count_katu: count_katu.parse::<u16>().map_err(|_| AppError::MalformedRequest)?,
-            count_miss: count_miss.parse::<u16>().map_err(|_| AppError::MalformedRequest)?,
+            count_300: count_300
+                .parse::<u16>()
+                .map_err(|_| AppError::MalformedRequest)?,
+            count_100: count_100
+                .parse::<u16>()
+                .map_err(|_| AppError::MalformedRequest)?,
+            count_50: count_50
+                .parse::<u16>()
+                .map_err(|_| AppError::MalformedRequest)?,
+            count_geki: count_geki
+                .parse::<u16>()
+                .map_err(|_| AppError::MalformedRequest)?,
+            count_katu: count_katu
+                .parse::<u16>()
+                .map_err(|_| AppError::MalformedRequest)?,
+            count_miss: count_miss
+                .parse::<u16>()
+                .map_err(|_| AppError::MalformedRequest)?,
         };
-        let score = score.parse::<i32>().map_err(|_| AppError::MalformedRequest)?;
-        let max_combo = max_combo.parse::<u16>().map_err(|_| AppError::MalformedRequest)?;
+        let score = score
+            .parse::<i32>()
+            .map_err(|_| AppError::MalformedRequest)?;
+        let max_combo = max_combo
+            .parse::<u16>()
+            .map_err(|_| AppError::MalformedRequest)?;
         let perfect_combo = perfect_combo == "True";
-        let mods = mods.parse::<i32>().map_err(|_| AppError::MalformedRequest)?;
+        let mods = mods
+            .parse::<u32>()
+            .map_err(|_| AppError::MalformedRequest)?;
         let passed = passed == "True";
         let mode = mode.parse::<u8>().map_err(|_| AppError::MalformedRequest)?;
-        let client_timestamp = NaiveDateTime::parse_from_str(client_timestamp, "%y%m%d%H%M%S")
+        let client_timestamp = NaiveDateTime::parse_from_str(client_timestamp, DATETIME_FORMAT_STR)
             .map_err(|_| AppError::MalformedRequest)?;
-        let score_flags = osu_version.len() - 8;
+        let score_flags = ScoreFlags::from_bits_retain((osu_version.len() - 8) as _);
         let osu_version = &osu_version[..8];
 
         Ok(Self {
-            mode,
-            mods,
             score,
             passed,
             accuracy,
@@ -133,6 +246,8 @@ impl FromStr for ScoreStatistics {
             score_flags,
             perfect_combo,
             client_timestamp,
+            mode: Gamemode::from(mode),
+            mods: Mods::from_bits_truncate(mods),
             osu_version: osu_version.to_string(),
             achieved_grade: achieved_grade.to_string(),
         })
@@ -141,10 +256,14 @@ impl FromStr for ScoreStatistics {
 
 #[derive(Debug)]
 pub struct ClientHashes {
+    /// This is just the formatted string of the client hashes
+    /// sent by the osu! client on score submission,
+    /// stored for simplicity
+    pub client_hash: String,
     pub osu_path_md5: String,
     pub adapters: NetworkAdapters,
     pub adapters_md5: String,
-    // This is actually the md5 of the md5
+    // These are actually the md5 of the md5
     pub uninstall_md5: String,
     pub disk_signature_md5: String,
 }
@@ -166,6 +285,7 @@ impl FromStr for ClientHashes {
         let disk_signature_md5 = split.next().ok_or(AppError::MalformedRequest)?;
 
         Ok(Self {
+            client_hash: input.to_string(),
             osu_path_md5: osu_path_md5.to_string(),
             adapters: NetworkAdapters {
                 adapters: adapters.to_string(),
@@ -177,6 +297,9 @@ impl FromStr for ClientHashes {
     }
 }
 
+/*
+TODO: the received data is somehow not
+ in sync with the actual client settings
 #[derive(Debug)]
 pub struct VisualSettings {
     pub bg_dim: Option<u8>,
@@ -189,6 +312,7 @@ pub struct VisualSettings {
 impl FromStr for VisualSettings {
     type Err = AppError;
     fn from_str(input: &str) -> Result<Self, Self::Err> {
+        println!("{input}");
         let mut split = input.split(':');
         let bg_dim = split.next().ok_or(AppError::MalformedRequest)?;
         let disable_samples = split.next().ok_or(AppError::MalformedRequest)? == "True";
@@ -210,12 +334,12 @@ impl FromStr for VisualSettings {
             beatmap_has_storyboard,
         })
     }
-}
+}*/
 
 #[derive(Debug)]
 pub struct UniqueIds {
     pub uninstall_md5: String,
-    pub disk_serial_md5: String,
+    pub disk_signature_md5: String,
 }
 
 impl FromStr for UniqueIds {
@@ -224,10 +348,10 @@ impl FromStr for UniqueIds {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let mut split = input.split('|');
         let uninstall_md5 = split.next().ok_or(AppError::MalformedRequest)?;
-        let disk_serial_md5 = split.next().ok_or(AppError::MalformedRequest)?;
+        let disk_signature_md5 = split.next().ok_or(AppError::MalformedRequest)?;
         Ok(Self {
             uninstall_md5: uninstall_md5.to_string(),
-            disk_serial_md5: disk_serial_md5.to_string(),
+            disk_signature_md5: disk_signature_md5.to_string(),
         })
     }
 }
@@ -247,8 +371,8 @@ fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArg
     let client_info = base64_simd::forgiving_decode_to_vec(form.s.as_bytes())?;
     let decrypted_client_info = decryptor.decrypt(&iv, client_info)?;
 
-    let visual_settings = base64_simd::forgiving_decode_to_vec(form.fs.as_bytes())?;
-    let decrypted_visual_settings = decryptor.decrypt(&iv, visual_settings)?;
+    /*let visual_settings = base64_simd::forgiving_decode_to_vec(form.fs.as_bytes())?;
+    let decrypted_visual_settings = decryptor.decrypt(&iv, visual_settings)?;*/
 
     let score = std::str::from_utf8(&decrypted_score)?;
     let score = ScoreAttributes::from_str(score)?;
@@ -256,8 +380,8 @@ fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArg
     let client_info = std::str::from_utf8(&decrypted_client_info)?;
     let client_info = ClientHashes::from_str(client_info)?;
 
-    let visual_settings = std::str::from_utf8(&decrypted_visual_settings)?;
-    let visual_settings = VisualSettings::from_str(visual_settings)?;
+    /*let visual_settings = std::str::from_utf8(&decrypted_visual_settings)?;
+    let visual_settings = VisualSettings::from_str(visual_settings)?;*/
 
     let quit = form.x == "1";
     let fail_time = form.ft.parse::<i32>()?;
@@ -270,11 +394,12 @@ fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArg
         score_time,
         unique_ids,
         client_info,
-        visual_settings,
+        // visual_settings,
         beatmap_md5: form.bmk,
         password_md5: form.pass,
         replay_data: form.replay,
         anticheat_token: form.token,
+        storyboard_md5: form.sbk,
     })
 }
 
@@ -296,6 +421,7 @@ pub struct ScoreSubmissionForm {
     pub score: String,
     pub fs: String,
     pub bmk: String,
+    pub sbk: Option<String>,
     pub c1: String,
     pub st: String,
     pub pass: String,
@@ -303,7 +429,7 @@ pub struct ScoreSubmissionForm {
     pub s: String,
     pub i: Bytes,
     pub iv: String,
-    pub replay: Bytes,
+    pub replay: Option<Bytes>,
     pub token: Option<String>,
 }
 
@@ -314,6 +440,7 @@ impl FromMultipart for ScoreSubmissionForm {
         let mut score = None;
         let mut fs = None;
         let mut bmk = None;
+        let mut sbk = None;
         let mut c1 = None;
         let mut st = None;
         let mut pass = None;
@@ -324,16 +451,19 @@ impl FromMultipart for ScoreSubmissionForm {
         let mut replay = None;
         let mut token = None;
 
-        while let Some(field) =form.next_field().await? {
+        while let Some(field) = form.next_field().await? {
             let name = field.name();
             match name {
-                Some("score") if field.file_name().is_some() => replay = Some(Bytes::from_field(field).await?),
+                Some("score") if field.file_name().is_some() => {
+                    replay = Some(Bytes::from_field(field).await?)
+                }
                 Some("score") => score = Some(String::from_field(field).await?),
 
                 Some("x") => x = Some(String::from_field(field).await?),
                 Some("ft") => ft = Some(String::from_field(field).await?),
                 Some("fs") => fs = Some(String::from_field(field).await?),
                 Some("bmk") => bmk = Some(String::from_field(field).await?),
+                Some("sbk") => sbk = Some(String::from_field(field).await?),
                 Some("c1") => c1 = Some(String::from_field(field).await?),
                 Some("st") => st = Some(String::from_field(field).await?),
                 Some("pass") => pass = Some(String::from_field(field).await?),
@@ -359,7 +489,8 @@ impl FromMultipart for ScoreSubmissionForm {
             s: s.ok_or(FromMultipartError::MissingField("s"))?,
             i: i.ok_or(FromMultipartError::MissingField("i"))?,
             iv: iv.ok_or(FromMultipartError::MissingField("iv"))?,
-            replay: replay.ok_or(FromMultipartError::MissingField("replay"))?,
+            replay,
+            sbk,
             token,
         })
     }

@@ -1,5 +1,5 @@
-use score_service::{api, lifecycle};
 use score_service::settings::AppSettings;
+use score_service::{api, lifecycle};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

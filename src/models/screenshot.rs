@@ -1,6 +1,6 @@
+use crate::common::multipart::{FromMultipart, FromMultipartError, FromMultipartField};
 use axum::body::Bytes;
 use axum::extract::Multipart;
-use crate::common::multipart::{FromMultipart, FromMultipartError, FromMultipartField};
 
 #[derive(Debug)]
 pub struct ScreenshotForm {
@@ -17,7 +17,7 @@ impl FromMultipart for ScreenshotForm {
         let mut v = None;
         let mut ss = None;
 
-        while let Some(field) =form.next_field().await? {
+        while let Some(field) = form.next_field().await? {
             let name = field.name();
             match name {
                 Some("u") => u = Some(String::from_field(field).await?),

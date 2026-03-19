@@ -1,5 +1,5 @@
-use axum::http::StatusCode;
 use axum::Json;
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use tracing::error;
@@ -11,6 +11,18 @@ pub type ServiceResponse<T> = ServiceResult<Json<T>>;
 pub enum AppError {
     Unexpected,
     MalformedRequest,
+
+    BeatmapsNotFound,
+
+    PerformanceFailedCalculating,
+
+    ScoresAnticheatTokenMissing,
+    ScoresMissingReplay,
+    ScoresIllegalScore,
+    ScoresNotRanked,
+
+    UsersNotFound,
+    UsersInvalidCredentials,
 }
 
 #[cold]

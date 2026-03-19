@@ -1,5 +1,7 @@
+use crate::achievements::Achievement;
 use crate::common::redis_pool::{RedisPool, RedisPoolManager};
 use crate::common::state::AppState;
+use crate::repositories::achievements;
 use crate::settings::AppSettings;
 use deadpool::Runtime;
 use redis::{AsyncConnectionConfig, Commands};
@@ -18,7 +20,23 @@ pub fn initialize_logging(settings: &AppSettings) {
 pub async fn initialize_state(settings: &AppSettings) -> anyhow::Result<AppState> {
     let db = initialize_db(&settings).await?;
     let redis = initialize_redis(&settings)?;
-    Ok(AppState { db, redis })
+    let achievements = initialize_achievements(&db).await?;
+
+    Ok(AppState {
+        db,
+        redis,
+        achievements,
+    })
+}
+
+pub async fn initialize_achievements(db: &Pool<MySql>) -> anyhow::Result<&'static [Achievement]> {
+    let achievements = achievements::fetch_all(db).await?;
+    let achievements: Vec<_> = achievements
+        .into_iter()
+        .map(|achievement| Achievement::map_from(achievement))
+        .collect();
+    let achievements = achievements.into_boxed_slice();
+    Ok(Box::leak(achievements))
 }
 
 pub fn initialize_db(settings: &AppSettings) -> impl Future<Output = sqlx::Result<Pool<MySql>>> {

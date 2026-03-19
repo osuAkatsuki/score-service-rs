@@ -1,6 +1,6 @@
 use axum::body::Bytes;
-use axum::extract::{FromRequest, Multipart as MultipartExtractor, Request};
 use axum::extract::multipart::{Field, MultipartError, MultipartRejection};
+use axum::extract::{FromRequest, Multipart as MultipartExtractor, Request};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
@@ -8,7 +8,9 @@ use axum::response::{IntoResponse, Response};
 pub struct Multipart<T>(pub T);
 
 pub trait FromMultipart: Sized {
-    fn from_multipart(form: MultipartExtractor) -> impl Future<Output = Result<Self, FromMultipartError>> + Send;
+    fn from_multipart(
+        form: MultipartExtractor,
+    ) -> impl Future<Output = Result<Self, FromMultipartError>> + Send;
 }
 
 pub trait FromMultipartField: Sized {

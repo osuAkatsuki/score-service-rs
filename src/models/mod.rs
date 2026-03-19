@@ -1,4 +1,7 @@
-pub mod accuracy;
+pub mod achievements;
+pub mod beatmaps;
+pub mod osu;
+pub mod privileges;
 pub mod screenshot;
 pub mod seasonal_backgrounds;
-pub mod scores;
+pub mod users;

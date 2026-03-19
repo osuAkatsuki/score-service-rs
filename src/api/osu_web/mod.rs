@@ -45,5 +45,5 @@ pub fn router() -> Router<AppState> {
         .route("/osu-getreplay.php", get(get_replay::handler))
         .route("/osu-comment.php", post(post_comment::handler))
         .route("/osu-osz2-getscores.php", get(scores::fetch))
-        .route("/osu-submit-modular-selector.php", post(scores::create))
+        .route("/osu-submit-modular-selector.php", post(scores::submit))
 }

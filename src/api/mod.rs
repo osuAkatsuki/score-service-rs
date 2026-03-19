@@ -1,16 +1,16 @@
-mod health;
-mod v1;
-mod osu_web;
 pub mod context;
+mod health;
+mod osu_web;
+mod v1;
 
-use std::net::SocketAddr;
-use axum::Router;
-use axum::routing::get;
-use tokio::net::TcpListener;
-use tracing::info;
 use crate::common::state::AppState;
 use crate::lifecycle;
 use crate::settings::AppSettings;
+use axum::Router;
+use axum::routing::get;
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
+use tracing::info;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -31,6 +31,6 @@ pub async fn serve(settings: &AppSettings) -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-        .await?;
+    .await?;
     Ok(())
 }
