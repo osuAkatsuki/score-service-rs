@@ -9,7 +9,7 @@ use crate::models::achievements::Achievement;
 use crate::models::osu::charts::{Chart, ChartEntry};
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
 use crate::repositories::scores;
-use crate::usecases::{beatmaps, charts, first_places, performance_caps, stats, users};
+use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{info, warn};
 
 pub async fn submit(
@@ -18,7 +18,7 @@ pub async fn submit(
 ) -> ServiceResult<ScoreSubmissionResult> {
     let user = users::fetch_one_and_auth(ctx, &args.score.username, &args.password_md5).await?;
     if args.anticheat_token.is_none() {
-        warn!("Anticheat Token is missing");
+        warn!(user_id = user.user_id, "Anticheat Token is missing");
         return Err(AppError::ScoresAnticheatTokenMissing);
     }
 
@@ -31,43 +31,60 @@ pub async fn submit(
             .as_ref()
             .is_none_or(|replay| replay.len() < 24)
     {
-        // TODO: restrict user ()
-        warn!("Score is missing Replay");
+        users::restrict_user(ctx, user.user_id, "Submitted score without replay.").await?;
         return Err(AppError::ScoresMissingReplay);
     }
 
     let uninstall_md5 = md5::compute(&args.unique_ids.uninstall_md5);
     let uninstall_id_hash = format!("{:x}", uninstall_md5);
     if uninstall_id_hash != args.client_info.uninstall_md5 {
-        // TODO: restrict user (uninstall id mismatch)
-        warn!("Score has uninstall id mismatch");
+        users::restrict_user(
+            ctx,
+            user.user_id,
+            "Submitted score with uninstall id hash mismatch.",
+        )
+        .await?;
         return Err(AppError::ScoresIllegalScore);
     }
 
     let disk_signature_md5 = md5::compute(&args.unique_ids.disk_signature_md5);
     let disk_signature_hash = format!("{:x}", disk_signature_md5);
     if disk_signature_hash != args.client_info.disk_signature_md5 {
-        // TODO: restrict user (disk signature mismatch)
-        warn!("Score has disk mismatch");
+        users::restrict_user(
+            ctx,
+            user.user_id,
+            "Submitted score with disk signature mismatch.",
+        )
+        .await?;
         return Err(AppError::ScoresIllegalScore);
     }
 
     if args.beatmap_md5 != args.score.beatmap_md5 {
-        // TODO: restrict user (beatmap hash mismatch)
-        warn!("Score has beatmap md5 mismatch");
+        users::restrict_user(
+            ctx,
+            user.user_id,
+            "Submitted score with beatmap hash mismatch (edited .osu file).",
+        )
+        .await?;
         return Err(AppError::ScoresIllegalScore);
     }
 
     if args.score_md5() != args.score.score_md5 {
-        // TODO: restrict user (score hash mismatch)
-        warn!("Score has score hash mismatch");
+        users::restrict_user(
+            ctx,
+            user.user_id,
+            "Submitted score with score hash mismatch.",
+        )
+        .await?;
         return Err(AppError::ScoresIllegalScore);
     }
 
-    // TODO: check for illegal mods (e.g. RXAP)
     if args.score.stats.mods.is_illegal_combination() {
-        // TODO: restrict user (illegal mod combination)
-        warn!("Score has illegal mod combination");
+        let reason = format!(
+            "Submitted score with illegal mod combination: {}.",
+            args.score.stats.mods
+        );
+        users::restrict_user(ctx, user.user_id, &reason).await?;
         return Err(AppError::ScoresIllegalScore);
     }
 
@@ -102,7 +119,11 @@ pub async fn submit(
 
     let duplicate = scores::checksum_exists(ctx, modded_gamemode, &args.score.score_md5).await?;
     if duplicate {
-        warn!("User submitted duplicate score");
+        warn!(
+            user_id = user.user_id,
+            score_md5 = args.score.score_md5,
+            "User submitted duplicate score"
+        );
         return Ok(ScoreSubmissionResult::Ok);
     }
 
@@ -236,11 +257,17 @@ pub async fn submit(
     )
     .await?;
     info!(
+        user_id = user.user_id,
         score_id = score.score_id,
         beatmap_md5 = beatmap.beatmap_md5,
         "{} has submitted a score",
         user.username,
     );
+
+    let task_ctx = ctx.clone();
+    tokio::spawn(async move {
+        _ = replays::save_replay(&task_ctx, score.score_id, args.replay_data.unwrap()).await;
+    });
 
     let mut restricted = !user.privileges.is_publicly_visible();
     let performance_autorestrict_cap =
@@ -248,7 +275,12 @@ pub async fn submit(
     if !user.whitelist.is_whitelisted_for(modded_gamemode)
         && score.performance >= performance_autorestrict_cap
     {
-        // TODO: restrict user (achieved performance exceeds autorestrict limit)
+        users::restrict_user(
+            ctx,
+            user.user_id,
+            "Achieved performance exceeds autorestrict limit.",
+        )
+        .await?;
         restricted = true;
     }
 

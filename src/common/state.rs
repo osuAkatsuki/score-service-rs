@@ -6,5 +6,6 @@ use sqlx::{MySql, Pool};
 pub struct AppState {
     pub db: Pool<MySql>,
     pub redis: RedisPool,
+    pub s3_client: Option<aws_sdk_s3::Client>,
     pub achievements: &'static [Achievement],
 }

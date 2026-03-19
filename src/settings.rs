@@ -23,6 +23,12 @@ pub struct AppSettings {
     pub redis_response_timeout: Duration,
     pub redis_wait_timeout: Duration,
 
+    pub aws_region: Option<String>,
+    pub aws_access_key_id: Option<String>,
+    pub aws_secret_access_key: Option<String>,
+    pub aws_endpoint_url: Option<String>,
+    pub aws_bucket_name: Option<String>,
+
     pub app_ci_key: String,
     pub beatmaps_service_base_url: String,
     pub performance_service_base_url: String,
@@ -55,6 +61,12 @@ impl AppSettings {
         let redis_wait_timeout_secs = u64::from_env("REDIS_WAIT_TIMEOUT_SECS")?;
         let redis_wait_timeout = Duration::from_secs(redis_wait_timeout_secs);
 
+        let aws_region = env::var("AWS_REGION").ok();
+        let aws_access_key_id = env::var("AWS_ACCESS_KEY_ID").ok();
+        let aws_secret_access_key = env::var("AWS_SECRET_ACCESS_KEY").ok();
+        let aws_endpoint_url = env::var("AWS_ENDPOINT_URL").ok();
+        let aws_bucket_name = env::var("AWS_BUCKET_NAME").ok();
+
         let app_ci_key = env::var("APP_CI_KEY")?;
         let beatmaps_service_base_url = env::var("BEATMAPS_SERVICE_BASE_URL")?;
         let performance_service_base_url = env::var("PERFORMANCE_SERVICE_BASE_URL")?;
@@ -79,6 +91,12 @@ impl AppSettings {
             redis_connection_timeout,
             redis_response_timeout,
             redis_wait_timeout,
+
+            aws_region,
+            aws_access_key_id,
+            aws_secret_access_key,
+            aws_endpoint_url,
+            aws_bucket_name,
 
             app_ci_key,
             beatmaps_service_base_url,

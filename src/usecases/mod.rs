@@ -2,6 +2,7 @@ pub mod beatmaps;
 pub mod charts;
 pub mod first_places;
 pub mod performance_caps;
+pub mod replays;
 pub mod scores;
 pub mod screenshots;
 pub mod seasonal_backgrounds;

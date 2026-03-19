@@ -1,6 +1,7 @@
 use crate::api::context::RequestContext;
 use crate::entities::mode::ModdedGamemode;
 use crate::entities::users::{User, UsernameChange};
+use crate::models::privileges::Privileges;
 use redis::AsyncCommands;
 
 pub async fn fetch_one_by_username(ctx: &RequestContext, username: &str) -> sqlx::Result<User> {
@@ -26,6 +27,29 @@ pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> sqlx:
         .bind(user_id)
         .execute(&ctx.db)
         .await?;
+    Ok(())
+}
+
+pub async fn restrict_with_note(
+    ctx: &RequestContext,
+    user_id: i64,
+    note: &str,
+) -> sqlx::Result<()> {
+    const QUERY: &str = "UPDATE users SET privileges = (privileges & ~(?)), notes = CONCAT(IFNULL(notes, ''), ?) WHERE id = ?";
+    let privileges = Privileges::PubliclyVisible;
+    let notes_adt = format!("\nscore-service autorestrict: {note}");
+    sqlx::query(QUERY)
+        .bind(privileges.bits())
+        .bind(notes_adt)
+        .bind(user_id)
+        .execute(&ctx.db)
+        .await?;
+    Ok(())
+}
+
+pub async fn publish_ban_event(ctx: &RequestContext, user_id: i64) -> anyhow::Result<()> {
+    let mut redis = ctx.redis.get().await?;
+    let _: () = redis.publish("peppy:ban", user_id.to_string()).await?;
     Ok(())
 }
 

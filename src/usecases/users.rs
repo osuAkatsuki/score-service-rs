@@ -1,5 +1,7 @@
+use crate::adapters::discord;
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult, unexpected};
+use crate::common::website;
 use crate::entities::mode::ModdedGamemode;
 use crate::models::users::User;
 use crate::repositories::users;
@@ -35,6 +37,15 @@ pub async fn fetch_one_and_auth(
 
 pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> ServiceResult<()> {
     users::update_latest_activity(ctx, user_id).await?;
+    Ok(())
+}
+
+pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> ServiceResult<()> {
+    users::restrict_with_note(ctx, user_id, reason).await?;
+    users::publish_ban_event(ctx, user_id).await?;
+
+    let profile_link = website::get_profile_link(user_id);
+    discord::send_ac_red_embed("User restricted", reason, Some(&profile_link)).await?;
     Ok(())
 }
 

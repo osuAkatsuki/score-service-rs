@@ -18,10 +18,7 @@ pub struct PerformanceRequest<'a> {
     pub mode: i32,
     pub mods: u32,
     pub max_combo: i32,
-    pub accuracy: f32, // Option<f32>,
-    /*pub count_300: Option<i32>,
-    pub count_100: Option<i32>,
-    pub count_50: Option<i32>,*/
+    pub accuracy: f32,
     pub miss_count: i32,
 }
 

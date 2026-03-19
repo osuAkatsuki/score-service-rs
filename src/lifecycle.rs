@@ -3,6 +3,7 @@ use crate::common::redis_pool::{RedisPool, RedisPoolManager};
 use crate::common::state::AppState;
 use crate::repositories::achievements;
 use crate::settings::AppSettings;
+use aws_sdk_s3::config::{Credentials, Region};
 use deadpool::Runtime;
 use redis::{AsyncConnectionConfig, Commands};
 use sqlx::mysql::MySqlPoolOptions;
@@ -17,16 +18,41 @@ pub fn initialize_logging(settings: &AppSettings) {
         .init();
 }
 
-pub async fn initialize_state(settings: &AppSettings) -> anyhow::Result<AppState> {
+pub async fn initialize_state(settings: &'static AppSettings) -> anyhow::Result<AppState> {
     let db = initialize_db(&settings).await?;
     let redis = initialize_redis(&settings)?;
+    let s3_client = initialize_s3(settings);
     let achievements = initialize_achievements(&db).await?;
 
     Ok(AppState {
         db,
         redis,
+        s3_client,
         achievements,
     })
+}
+
+pub fn initialize_s3(settings: &'static AppSettings) -> Option<aws_sdk_s3::Client> {
+    let aws_region = settings.aws_region.as_ref()?;
+    let aws_access_key_id = settings.aws_access_key_id.as_ref()?;
+    let aws_secret_access_key = settings.aws_secret_access_key.as_ref()?;
+    let aws_endpoint_url = settings.aws_endpoint_url.as_ref()?;
+
+    let region = Region::new(aws_region);
+    let credentials = Credentials::new(
+        aws_access_key_id,
+        aws_secret_access_key,
+        None,
+        None,
+        "static",
+    );
+    let config = aws_sdk_s3::config::Config::builder()
+        .region(region)
+        .credentials_provider(credentials)
+        .endpoint_url(aws_endpoint_url)
+        .force_path_style(true)
+        .build();
+    Some(aws_sdk_s3::Client::from_conf(config))
 }
 
 pub async fn initialize_achievements(db: &Pool<MySql>) -> anyhow::Result<&'static [Achievement]> {

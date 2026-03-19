@@ -18,7 +18,7 @@ pub fn router() -> Router<AppState> {
         .nest("/web", osu_web::router())
 }
 
-pub async fn serve(settings: &AppSettings) -> anyhow::Result<()> {
+pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
     let state = lifecycle::initialize_state(&settings).await?;
     let addr = SocketAddr::from((settings.app_host, settings.app_port));
     info!("Listening on {addr}");
