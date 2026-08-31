@@ -3,9 +3,10 @@ use bitflags::bitflags;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Error, ErrorKind};
 use std::str::FromStr;
+use serde::Deserialize;
 
 bitflags! {
-    #[derive(Default, Copy, Clone, Eq, PartialEq)]
+    #[derive(Default, Copy, Clone, Eq, PartialEq, Deserialize)]
     pub struct Mods: u32 {
         const None = 0;
         const NoFail = 1 << 0;

@@ -43,3 +43,11 @@ pub async fn increment_playcount(
     beatmaps::increment_playcount(ctx, beatmap_md5, increment_passcount).await?;
     Ok(())
 }
+
+pub async fn file_name_exists(
+    ctx: &RequestContext,
+    file_name: &str,
+) -> ServiceResult<bool> {
+    let exists = beatmaps::file_name_exists(ctx, file_name).await?;
+    Ok(exists)
+}

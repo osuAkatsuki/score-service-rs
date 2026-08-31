@@ -2,8 +2,12 @@ use crate::api::context::RequestContext;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::mode::ModdedGamemode;
 use crate::entities::mods::Mods;
-use crate::entities::scores::{Score, ScoreSorting, ScoreStatus};
+use crate::entities::scores::{LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric, ScoreStatus};
 use chrono::Utc;
+use lapin::BasicProperties;
+use lapin::options::BasicPublishOptions;
+use lapin::types::ShortString;
+use crate::settings::AppSettings;
 
 pub async fn create(
     ctx: &RequestContext,
@@ -69,12 +73,84 @@ pub async fn create(
     })
 }
 
+pub async fn fetch_leaderboard_view(
+    ctx: &RequestContext,
+    user_id: i64,
+    beatmap_md5: &str,
+    mode: ModdedGamemode,
+    display_pp_as_score: bool,
+    filter: LeaderboardFilter<'_>,
+    leaderboard_size: i32,
+) -> sqlx::Result<Vec<LeaderboardScore>> {
+    let sort_column = match display_pp_as_score {
+        true => "pp",
+        false => "score",
+    };
+    let query = format!(r#"SELECT users.username AS username, clans.tag AS clan_tag,
+    s.id AS score_id, s.userid AS user_id, s.score AS score, s.max_combo AS max_combo,
+    s.full_combo AS full_combo, s.mods AS mods, s.300_count AS 300_count,
+    s.100_count AS 100_count, s.50_count AS 50_count, s.gekis_count AS gekis_count,
+    s.katus_count AS katus_count, s.misses_count AS misses_count, s.time AS time,
+    s.play_mode AS play_mode, s.completed AS completed, s.pp AS pp, s.checksum AS checksum
+    FROM {} s
+    INNER JOIN users ON users.id = s.userid
+    LEFT JOIN clans c ON users.clan_id = c.id
+    WHERE s.beatmap_md5 = ?
+    AND s.play_mode = ?
+    AND s.completed = 3
+    AND (users.privileges & 1 = 1 OR users.id = ?)
+    {}
+    ORDER BY s.{} DESC, s.time ASC
+    LIMIT ?"#,
+        mode.scores_table(),
+        filter.query_part(),
+        sort_column,
+    );
+    let query = sqlx::query_as(&query)
+        .bind(beatmap_md5)
+        .bind(mode.as_gamemode() as u8)
+        .bind(user_id);
+    let query = match filter {
+        LeaderboardFilter::None => query,
+        LeaderboardFilter::Friends(friends_ids) => friends_ids.into_iter()
+            .fold(query.bind(user_id), |query, b| query.bind(b)),
+        LeaderboardFilter::Mods(mods) => query.bind(mods.bits()),
+        LeaderboardFilter::Country(country_code) => query.bind(country_code),
+    };
+    query
+        .bind(leaderboard_size)
+        .fetch_all(&ctx.db)
+        .await
+}
+
+pub async fn fetch_ranked_scores_count(
+    ctx: &RequestContext,
+    beatmap_md5: &str,
+    mode: ModdedGamemode,
+) -> sqlx::Result<i64> {
+    let query = format!(
+        r#"SELECT COUNT(*) FROM {}
+        INNER JOIN users ON users.id = userid
+        WHERE beatmap_md5 = ?
+        AND play_mode = ?
+        AND completed = 3
+        AND (users.privileges & 1) = 1"#,
+        mode.scores_table(),
+    );
+    let count: i64 = sqlx::query_scalar(&query)
+        .bind(beatmap_md5)
+        .bind(mode.as_gamemode() as u8)
+        .fetch_one(&ctx.db)
+        .await?;
+    Ok(count)
+}
+
 pub async fn find_rank(
     ctx: &RequestContext,
     user_id: i64,
     beatmap_md5: &str,
     mode: ModdedGamemode,
-    sort: ScoreSorting,
+    ranking_metric: ScoreRankingMetric,
 ) -> sqlx::Result<i64> {
     let query = format!(
         r#"SELECT COUNT(*) FROM {}
@@ -84,15 +160,15 @@ pub async fn find_rank(
         AND completed = 3
         AND userid != ?
         AND {} >= ?
-        AND (users.privileges & 1) > 0"#,
+        AND (users.privileges & 1) = 1"#,
         mode.scores_table(),
-        sort.column_name(),
+        ranking_metric.column_name(),
     );
     let count: i64 = sqlx::query_scalar(&query)
         .bind(beatmap_md5)
         .bind(mode.as_gamemode() as u8)
         .bind(user_id)
-        .bind(sort)
+        .bind(ranking_metric)
         .fetch_one(&ctx.db)
         .await?;
     Ok(count + 1)
@@ -204,4 +280,25 @@ pub async fn checksum_exists(
         .bind(checksum)
         .fetch_one(&ctx.db)
         .await
+}
+
+pub async fn publish_score_event(
+    ctx: &RequestContext,
+    args: serde_json::Result<String>,
+) -> anyhow::Result<()> {
+    if let Some(amqp_channel) = ctx.amqp_channel.as_ref() {
+        let payload = args?;
+        let settings = AppSettings::get();
+        for routing_key in settings.score_submission_routing_keys.iter() {
+            amqp_channel.basic_publish(
+                ShortString::default(),
+                ShortString::from(routing_key.clone()),
+                BasicPublishOptions::default(),
+                payload.as_bytes(),
+                BasicProperties::default(),
+            ).await?;
+        }
+    }
+
+    Ok(())
 }

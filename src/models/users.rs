@@ -62,6 +62,7 @@ pub struct User {
     pub favourite_mode: i16,
     pub playstyle: i16,
     pub vanilla_pp_leaderboards: bool,
+    pub leaderboard_size: Option<i32>,
     pub has_free_username_change: bool,
 }
 
@@ -138,6 +139,7 @@ impl TryFrom<UserEntity> for User {
             favourite_mode: value.favourite_mode,
             playstyle: value.play_style,
             vanilla_pp_leaderboards: value.vanilla_pp_leaderboards,
+            leaderboard_size: value.leaderboard_size,
             has_free_username_change: value.has_free_username_change,
         })
     }

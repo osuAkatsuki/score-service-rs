@@ -2,7 +2,7 @@ use crate::entities::mode::Gamemode;
 use crate::entities::mods::Mods;
 use crate::entities::scores::ScoreGrade;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Accuracy {
     pub count_300: u16,
     pub count_100: u16,

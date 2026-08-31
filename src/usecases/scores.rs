@@ -1,16 +1,106 @@
-use crate::adapters::performance_service;
 use crate::adapters::performance_service::PerformanceRequest;
+use crate::adapters::{bancho_service, performance_service};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
-use crate::entities::mode::ModdedGamemode;
-use crate::entities::scores::{Score, ScoreSorting, ScoreStatus};
+use crate::entities::accuracy::Accuracy;
+use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
+use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
+use crate::entities::mods::Mods;
+use crate::entities::scores::{LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
-use crate::models::osu::charts::{Chart, ChartEntry};
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
-use crate::repositories::scores;
+use crate::repositories::{match_game_scores, scores};
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{info, warn};
+use crate::models::beatmaps::RankedStatus;
+use crate::models::osu::leaderboards::{FetchLeaderboardArgs, LeaderboardType, UserLeaderboardScoresView, UserLeaderboardView};
+use crate::settings::AppSettings;
+
+const CURRENT_LBS_VERSION: i32 = 4;
+pub async fn fetch_leaderboard_view(
+    ctx: &RequestContext,
+    args: FetchLeaderboardArgs,
+) -> ServiceResult<UserLeaderboardView> {
+    let user = users::fetch_one_and_auth(ctx, &args.username, &args.password_md5).await?;
+    if args.leaderboard_version != CURRENT_LBS_VERSION {
+        let task_ctx = ctx.clone();
+        tokio::spawn(async move {
+            _ = users::restrict_user(&task_ctx, user.user_id, "osu! stable leaderboard version mismatch.").await;
+        });
+    }
+
+    let beatmap = match beatmaps::fetch_by_md5(&args.beatmap_md5).await {
+        Ok(beatmap) => beatmap,
+        Err(AppError::BeatmapsNotFound) => return match beatmaps::file_name_exists(ctx, &args.file_name).await? {
+            true => Ok(UserLeaderboardView::Status(RankedStatus::UpdateAvailable)),
+            false => Ok(UserLeaderboardView::Status(RankedStatus::NotSubmitted)),
+        },
+        Err(e) => return Err(e),
+    };
+
+    if args.requesting_from_editor_song_select ||
+        !beatmap.has_leaderboards() ||
+        args.leaderboard_type == LeaderboardType::Local {
+        return Ok(UserLeaderboardView::Status(beatmap.status));
+    }
+
+    // Remove any invalid mods for this game mode (e.g. Relax on Mania)
+    let sanitized_mods = args.mods.sanitize_for_mode(args.mode);
+    let modded_gamemode = ModdedGamemode::from_mode_and_mods(args.mode, sanitized_mods);
+    let display_pp_as_score = modded_gamemode.mode_mod() != GamemodeMod::Vanilla || user.vanilla_pp_leaderboards;
+
+    let filter = match args.leaderboard_type {
+        LeaderboardType::Global | LeaderboardType::Local => LeaderboardFilter::None,
+        LeaderboardType::Mods => LeaderboardFilter::Mods(sanitized_mods),
+        LeaderboardType::Friends => {
+            let friends = users::fetch_user_friends(ctx, user.user_id).await?;
+            LeaderboardFilter::Friends(friends)
+        },
+        LeaderboardType::Country => LeaderboardFilter::Country(&user.country),
+    };
+
+    let leaderboard_size = user.privileges.is_donor()
+        .then(|| user.leaderboard_size)
+        .flatten()
+        .unwrap_or_else(|| AppSettings::get().leaderboard_size);
+    let leaderboard_scores = scores::fetch_leaderboard_view(
+        ctx,
+        user.user_id,
+        &beatmap.beatmap_md5,
+        modded_gamemode,
+        display_pp_as_score,
+        filter,
+        leaderboard_size,
+    ).await?;
+
+    let personal_best = leaderboard_scores.iter()
+        .enumerate()
+        .find(|(_, score)| score.user_id == user.user_id)
+        .map(|(i, score)| (i as i64, score.clone()));
+
+    let personal_best = match personal_best {
+        None => {
+            /*scores::fetch_user_best(ctx, ).await?;
+            Some()*/
+            todo!()
+        }
+        Some(pb) => Some(pb),
+    };
+
+    let total_scores = match leaderboard_scores.len() < leaderboard_size as usize {
+        true => leaderboard_scores.len() as _,
+        false => scores::fetch_ranked_scores_count(ctx, &beatmap.beatmap_md5, modded_gamemode).await?,
+    };
+
+    Ok(UserLeaderboardView::ScoresView(UserLeaderboardScoresView {
+        beatmap,
+        total_scores,
+        personal_best,
+        display_pp_as_score,
+        scores: leaderboard_scores,
+    }))
+}
 
 pub async fn submit(
     ctx: &RequestContext,
@@ -97,7 +187,7 @@ pub async fn submit(
             .iter_names()
             .map(|(name, _)| name)
             .collect();
-        warn!("Found flags {flags:?} on score from ");
+        warn!(user_id = user.user_id, "Found flags {flags:?} on score.");
     }
 
     let task_ctx = ctx.clone();
@@ -139,6 +229,17 @@ pub async fn submit(
         )
         .await;
         _ = beatmaps::increment_playcount(&task_ctx, &task_bm_md5, args.score.stats.passed).await;
+        _ = associate_multiplayer_score(
+            &task_ctx,
+            user.user_id,
+            args.score.stats.mode,
+            args.score.stats.accuracy,
+            args.score.stats.score,
+            args.score.stats.max_combo as _,
+            sanitized_mods,
+            args.score.stats.passed,
+        )
+        .await;
     });
 
     let old_stats = stats::fetch_one(ctx, user.user_id, modded_gamemode).await?;
@@ -151,8 +252,6 @@ pub async fn submit(
     // if quit || failed => (beatmap.hit_length - (beatmap.total_length - score_time_secs)) / time_multiplier
     // else beatmap.hit_length / time_multiplier
     update_stats.increment_playtime(score_time_secs);
-
-    // TODO: fetch user multiplayer match and insert mp score
 
     if args.quit || !args.score.stats.passed {
         scores::create(
@@ -172,6 +271,10 @@ pub async fn submit(
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
         return Ok(ScoreSubmissionResult::Ok);
+    }
+
+    if args.score.stats.max_combo as u32 > old_stats.max_combo {
+        update_stats.update_max_combo(args.score.stats.max_combo);
     }
 
     let performance = performance_service::calculate(PerformanceRequest {
@@ -237,10 +340,6 @@ pub async fn submit(
         Some(_) => ScoreStatus::Completed,
     };
 
-    if args.score.stats.max_combo as u32 > old_stats.max_combo {
-        update_stats.update_max_combo(args.score.stats.max_combo);
-    }
-
     let score = scores::create(
         ctx,
         user.user_id,
@@ -265,14 +364,35 @@ pub async fn submit(
     );
 
     let task_ctx = ctx.clone();
+    let event = SubmissionEvent {
+        score_data: &args.event_data.score_data,
+        exited_out: args.quit,
+        fail_time: args.fail_time,
+        visual_settings_b64: &args.event_data.visual_settings_b64,
+        updated_beatmap_hash: &args.beatmap_md5,
+        storyboard_md5: args.storyboard_md5.as_ref().map(|x| x.as_str()),
+        iv_b64: &args.event_data.iv_b64,
+        unique_ids: &args.event_data.unique_ids,
+        score_time: args.score_time,
+        osu_version: &args.osu_version,
+        client_hash_b64: &args.event_data.client_hash_b64,
+        score_id: score.score_id,
+        user_id: user.user_id,
+        osu_auth_token: args.anticheat_token.as_ref().map(|x| x.as_str()),
+        mode_vn: modded_gamemode.as_gamemode() as u8,
+        relax: modded_gamemode.mode_mod() as u8,
+    };
+    let event_payload = serde_json::to_string(&event);
     tokio::spawn(async move {
         _ = replays::save_replay(&task_ctx, score.score_id, args.replay_data.unwrap()).await;
+        _ = scores::publish_score_event(&task_ctx, event_payload).await;
     });
 
     let mut restricted = !user.privileges.is_publicly_visible();
     let performance_autorestrict_cap =
         performance_caps::fetch_one(ctx, modded_gamemode, sanitized_mods).await?;
-    if !user.whitelist.is_whitelisted_for(modded_gamemode)
+    if !restricted
+        && !user.whitelist.is_whitelisted_for(modded_gamemode)
         && score.performance >= performance_autorestrict_cap
     {
         users::restrict_user(
@@ -284,10 +404,8 @@ pub async fn submit(
         restricted = true;
     }
 
-    // TODO: publish score amqp event
-
-    let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
     let mut new_rank = None;
+    let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
     let pb_rank = match &personal_best {
         Some(pb) => Some(
             scores::find_rank(
@@ -295,7 +413,7 @@ pub async fn submit(
                 user.user_id,
                 &beatmap.beatmap_md5,
                 modded_gamemode,
-                ScoreSorting::Performance(pb.performance),
+                ScoreRankingMetric::Performance(pb.performance),
             )
             .await?,
         ),
@@ -303,10 +421,10 @@ pub async fn submit(
     };
     let score_rank = scores::find_rank(
         ctx,
-        score.score_id,
+        user.user_id,
         &beatmap.beatmap_md5,
         modded_gamemode,
-        ScoreSorting::Performance(score.performance),
+        ScoreRankingMetric::Performance(score.performance),
     )
     .await?;
     if status == ScoreStatus::Best && !restricted {
@@ -338,13 +456,13 @@ pub async fn submit(
     }
 
     let new_stats = update_stats.apply(&old_stats);
-    let achievements =
-        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
-
     let task_ctx = ctx.clone();
     tokio::spawn(async move {
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
     });
+
+    let achievements =
+        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
 
     let beatmap_ranking_chart =
         charts::beatmap_ranking(&beatmap, &personal_best, &score, pb_rank, score_rank);
@@ -390,6 +508,39 @@ pub async fn submit(
     ];
 
     Ok(ScoreSubmissionResult::Charts(beatmap, charts, achievements))
+}
+
+async fn associate_multiplayer_score(
+    ctx: &RequestContext,
+    user_id: i64,
+    mode: Gamemode,
+    accuracy: Accuracy,
+    score: i32,
+    max_combo: i32,
+    mods: Mods,
+    passed: bool,
+) -> ServiceResult<()> {
+    let Some(user_match) = bancho_service::fetch_player_match_details(user_id).await? else {
+        return Ok(());
+    };
+
+    match_game_scores::create(
+        ctx,
+        CreateMatchGameScoreArgs {
+            user_id: user_id as _,
+            team: user_match.team as _,
+            game_id: user_match.game_id as _,
+            match_id: user_match.match_id as _,
+            mode,
+            mods,
+            score,
+            passed,
+            accuracy,
+            max_combo,
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 async fn unlock_achievements(

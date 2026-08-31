@@ -1,11 +1,15 @@
+use axum::extract::Query;
 use crate::api::context::RequestContext;
 use crate::common::error::AppError;
+use crate::models::osu::leaderboards::{FetchLeaderboardArgs, UserLeaderboardView};
 use crate::models::osu::score_submission::{ScoreSubmissionResult, SubmitScoreArgs};
 use crate::usecases::scores;
 
-pub async fn fetch(ctx: RequestContext) -> &'static str {
-    // TODO: Implement score fetching
-    "3|false|75|1|0|0\n0\nA - B\n0"
+pub async fn fetch_leaderboard(
+    ctx: RequestContext,
+    Query(args): Query<FetchLeaderboardArgs>,
+) -> Result<UserLeaderboardView, &'static str> {
+    scores::fetch_leaderboard_view(&ctx, args).await.map_err(|_| "error")
 }
 
 const ERROR_RETRY: &str = "";
