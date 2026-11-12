@@ -54,29 +54,61 @@ pub async fn recalculate_weighted(
         return Ok((0, 100.0));
     }
 
-    let mut weighted_pp = 0.0;
-    let mut weighted_acc = 0.0;
-    for (i, score) in top_plays.iter().enumerate() {
-        let weighting = 0.95f32.powi(i as _);
-        let weighted_score_pp = score.performance * weighting;
-        let weighted_score_acc = score.accuracy.as_percent(score.mode.as_gamemode()) * weighting;
-
-        weighted_pp += weighted_score_pp;
-        weighted_acc += weighted_score_acc;
-    }
+    let top_plays: Vec<_> = top_plays
+        .iter()
+        .map(|score| {
+            let accuracy = score.accuracy.as_percent(score.mode.as_gamemode());
+            (score.performance as f64, accuracy as f64)
+        })
+        .collect();
+    let (weighted_pp, weighted_acc) = weigh_top_plays(&top_plays);
 
     let bonus_pp = calculate_bonus_pp(ctx, user_id, mode).await?;
-    let total_pp = (weighted_pp + bonus_pp) as u32;
-    let total_acc =
-        (weighted_acc * (100.0 / (20.0 * (1.0 - 0.95f32.powi(top_plays.len() as _))))) / 100.0;
-    Ok((total_pp, total_acc as _))
+    let total_pp = (weighted_pp + bonus_pp).round() as u32;
+    Ok((total_pp, weighted_acc))
+}
+
+/// Weighs the performance and accuracy of scores that are sorted by their performance.
+/// Every score is worth 5% less than the one before it.
+fn weigh_top_plays(top_plays: &[(f64, f64)]) -> (f64, f64) {
+    let mut weighted_pp = 0.0;
+    let mut weighted_acc = 0.0;
+    for (i, (performance, accuracy)) in top_plays.iter().enumerate() {
+        let weighting = 0.95f64.powi(i as _);
+        weighted_pp += performance * weighting;
+        weighted_acc += accuracy * weighting;
+    }
+
+    // Normalizes the accuracy, as the weights of less than 100 scores do not add up to 20
+    let total_weight = 20.0 * (1.0 - 0.95f64.powi(top_plays.len() as _));
+    (weighted_pp, weighted_acc / total_weight)
 }
 
 pub async fn calculate_bonus_pp(
     ctx: &RequestContext,
     user_id: i64,
     mode: ModdedGamemode,
-) -> ServiceResult<f32> {
+) -> ServiceResult<f64> {
     let ranked_scores_count = scores::fetch_user_ranked_scores_count(ctx, user_id, mode).await?;
-    Ok(416.6667f32 * (1.0f32 - (0.995f32.powi(ranked_scores_count as _))))
+    Ok(416.6667 * (1.0 - 0.995f64.powi(ranked_scores_count as _)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_single_score_is_worth_all_of_its_performance_and_accuracy() {
+        let (pp, accuracy) = weigh_top_plays(&[(250.0, 97.5)]);
+        assert!((pp - 250.0).abs() < 1e-9);
+        assert!((accuracy - 97.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scores_are_worth_less_the_further_down_they_are() {
+        let (pp, accuracy) = weigh_top_plays(&[(300.0, 100.0), (200.0, 90.0), (100.0, 80.0)]);
+        assert!((pp - (300.0 + 190.0 + 90.25)).abs() < 1e-9);
+        // (100 + 85.5 + 72.2) / (1 + 0.95 + 0.9025)
+        assert!((accuracy - 90.341805).abs() < 1e-5);
+    }
 }
