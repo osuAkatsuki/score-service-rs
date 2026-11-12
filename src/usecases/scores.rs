@@ -1,13 +1,16 @@
-use crate::adapters::performance_service;
 use crate::adapters::performance_service::PerformanceRequest;
+use crate::adapters::{bancho_service, performance_service};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
-use crate::entities::mode::ModdedGamemode;
+use crate::entities::accuracy::Accuracy;
+use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
+use crate::entities::mode::{Gamemode, ModdedGamemode};
+use crate::entities::mods::Mods;
 use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
-use crate::repositories::scores;
+use crate::repositories::{match_game_scores, scores};
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{info, warn};
 
@@ -138,6 +141,17 @@ pub async fn submit(
         )
         .await;
         _ = beatmaps::increment_playcount(&task_ctx, &task_bm_md5, args.score.stats.passed).await;
+        _ = associate_multiplayer_score(
+            &task_ctx,
+            user.user_id,
+            args.score.stats.mode,
+            args.score.stats.accuracy,
+            args.score.stats.score,
+            args.score.stats.max_combo as _,
+            sanitized_mods,
+            args.score.stats.passed,
+        )
+        .await;
     });
 
     let old_stats = stats::fetch_one(ctx, user.user_id, modded_gamemode).await?;
@@ -150,8 +164,6 @@ pub async fn submit(
     // if quit || failed => (beatmap.hit_length - (beatmap.total_length - score_time_secs)) / time_multiplier
     // else beatmap.hit_length / time_multiplier
     update_stats.increment_playtime(score_time_secs);
-
-    // TODO: fetch user multiplayer match and insert mp score
 
     if args.quit || !args.score.stats.passed {
         scores::create(
@@ -390,6 +402,39 @@ pub async fn submit(
     ];
 
     Ok(ScoreSubmissionResult::Charts(beatmap, charts, achievements))
+}
+
+async fn associate_multiplayer_score(
+    ctx: &RequestContext,
+    user_id: i64,
+    mode: Gamemode,
+    accuracy: Accuracy,
+    score: i32,
+    max_combo: i32,
+    mods: Mods,
+    passed: bool,
+) -> ServiceResult<()> {
+    let Some(user_match) = bancho_service::fetch_player_match_details(user_id).await? else {
+        return Ok(());
+    };
+
+    match_game_scores::create(
+        ctx,
+        CreateMatchGameScoreArgs {
+            user_id: user_id as _,
+            team: user_match.team as _,
+            game_id: user_match.game_id as _,
+            match_id: user_match.match_id as _,
+            mode,
+            mods,
+            score,
+            passed,
+            accuracy,
+            max_combo,
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 async fn unlock_achievements(
