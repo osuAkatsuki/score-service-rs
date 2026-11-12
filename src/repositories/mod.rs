@@ -3,6 +3,7 @@ pub mod beatmap_ratings;
 pub mod beatmaps;
 pub mod favourites;
 pub mod first_places;
+pub mod lastfm_flags;
 pub mod performance_caps;
 pub mod scores;
 pub mod screenshots;
