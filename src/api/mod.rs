@@ -16,6 +16,7 @@ use tracing::info;
 pub fn router() -> Router<AppState> {
     Router::new()
         .nest("/api/v1", v1::router())
+        .nest("/public/api/v1", v1::public_router())
         .nest("/web", osu_web::router())
         .route("/ss/{file_name}", get(osu_web::screenshot::fetch))
         .route("/d/{beatmapset_id}", get(osu_web::direct::download))

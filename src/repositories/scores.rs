@@ -238,6 +238,17 @@ pub async fn find_rank(
     Ok(count + 1)
 }
 
+/// Counts the scores of every kind, no matter whether they are still worth anything
+pub async fn fetch_total_count(ctx: &RequestContext) -> sqlx::Result<i64> {
+    const QUERY: &str = r#"
+        SELECT (SELECT COUNT(*) FROM scores)
+             + (SELECT COUNT(*) FROM scores_relax)
+             + (SELECT COUNT(*) FROM scores_ap)
+    "#;
+
+    sqlx::query_scalar(QUERY).fetch_one(&ctx.db).await
+}
+
 pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> sqlx::Result<Option<Score>> {
     let table_name = GamemodeMod::from_score_id(score_id).scores_table();
     let query = format!(
