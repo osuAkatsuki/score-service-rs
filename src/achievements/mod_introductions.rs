@@ -1,9 +1,9 @@
 use crate::entities::mods::Mods;
-use crate::entities::scores::{Score, ScoreStatus};
+use crate::entities::scores::Score;
 use crate::entities::stats::Stats;
 
 fn passed(score: &Score) -> bool {
-    score.status != ScoreStatus::Failed
+    score.status.is_pass()
 }
 
 pub fn intro_sudden_death(

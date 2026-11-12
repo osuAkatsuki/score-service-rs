@@ -269,6 +269,10 @@ pub async fn submit(
     update_stats.increment_playtime(score_time_secs);
 
     if args.quit || !args.score.stats.passed {
+        let status = match args.quit {
+            true => ScoreStatus::Quit,
+            false => ScoreStatus::Failed,
+        };
         scores::create(
             ctx,
             user.user_id,
@@ -281,7 +285,7 @@ pub async fn submit(
             sanitized_mods,
             0.0,
             &args.score.score_md5,
-            ScoreStatus::Failed,
+            status,
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -303,7 +307,8 @@ pub async fn submit(
     })
     .await;
 
-    // Skip stats calculation if performance calc fails
+    // Skip stats calculation if performance calc fails.
+    // The score is kept as a pass that is worth nothing until its performance is recalculated.
     let Ok(performance) = performance else {
         scores::create(
             ctx,
@@ -317,7 +322,7 @@ pub async fn submit(
             sanitized_mods,
             0.0,
             &args.score.score_md5,
-            ScoreStatus::Unprocessed,
+            ScoreStatus::Completed,
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
