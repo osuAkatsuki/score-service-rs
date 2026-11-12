@@ -127,6 +127,15 @@ pub async fn submit(
         return Err(AppError::ScoresAnticheatTokenMissing);
     }
 
+    if ctx.user_agent.as_deref() != Some("osu!") {
+        let reason = format!(
+            "Submitted score with unexpected user agent: {}.",
+            ctx.user_agent.as_deref().unwrap_or("none")
+        );
+        users::restrict_user(ctx, user.user_id, &reason).await?;
+        return Err(AppError::ScoresIllegalScore);
+    }
+
     // Honestly no idea where the 24 comes from
     // Just using it to match https://github.com/osuAkatsuki/score-service/blob/master/app/api/score_sub.py#L348
     if !args.quit
