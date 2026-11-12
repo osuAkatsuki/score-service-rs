@@ -93,6 +93,13 @@ pub async fn publish_ban_event(ctx: &RequestContext, user_id: i64) -> anyhow::Re
     Ok(())
 }
 
+/// Bancho keeps track of the sessions of every user that is logged into the game
+pub async fn is_online(ctx: &RequestContext, user_id: i64) -> anyhow::Result<bool> {
+    let mut redis = ctx.redis.get().await?;
+    let is_online = redis.exists(format!("bancho:tokens:ids:{user_id}")).await?;
+    Ok(is_online)
+}
+
 pub async fn fetch_user_friends(
     ctx: &RequestContext,
     user_id: i64,

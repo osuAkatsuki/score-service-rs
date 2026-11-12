@@ -16,6 +16,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .nest("/api/v1", v1::router())
         .nest("/web", osu_web::router())
+        .route("/ss/{file_name}", get(osu_web::screenshot::fetch))
 }
 
 pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {

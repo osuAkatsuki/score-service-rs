@@ -24,6 +24,10 @@ pub enum AppError {
 
     ReplaysNotFound,
 
+    ScreenshotsNotAllowed,
+    ScreenshotsTooManyRequests,
+    ScreenshotsInvalidFile,
+
     UsersNotFound,
     UsersInvalidCredentials,
 }
@@ -61,6 +65,10 @@ impl AppError {
 
             AppError::ReplaysNotFound => "replays.not_found",
 
+            AppError::ScreenshotsNotAllowed => "screenshots.not_allowed",
+            AppError::ScreenshotsTooManyRequests => "screenshots.too_many_requests",
+            AppError::ScreenshotsInvalidFile => "screenshots.invalid_file",
+
             AppError::UsersNotFound => "users.not_found",
             AppError::UsersInvalidCredentials => "users.invalid_credentials",
         }
@@ -83,6 +91,10 @@ impl AppError {
 
             AppError::ReplaysNotFound => "Replay not found.",
 
+            AppError::ScreenshotsNotAllowed => "Screenshots can only be uploaded ingame.",
+            AppError::ScreenshotsTooManyRequests => "Screenshots are being uploaded too quickly.",
+            AppError::ScreenshotsInvalidFile => "The screenshot is too large or not an image.",
+
             AppError::UsersNotFound => "User not found.",
             AppError::UsersInvalidCredentials => "Invalid credentials.",
         }
@@ -98,7 +110,11 @@ impl AppError {
             | AppError::ScoresAnticheatTokenMissing
             | AppError::ScoresMissingReplay
             | AppError::ScoresIllegalScore
-            | AppError::ScoresNotRanked => StatusCode::BAD_REQUEST,
+            | AppError::ScoresNotRanked
+            | AppError::ScreenshotsInvalidFile => StatusCode::BAD_REQUEST,
+
+            AppError::ScreenshotsNotAllowed => StatusCode::FORBIDDEN,
+            AppError::ScreenshotsTooManyRequests => StatusCode::TOO_MANY_REQUESTS,
 
             AppError::BeatmapsNotFound
             | AppError::ScoresNotFound
