@@ -22,6 +22,8 @@ pub enum AppError {
     ScoresNotRanked,
     ScoresNotFound,
 
+    ReplaysNotFound,
+
     UsersNotFound,
     UsersInvalidCredentials,
 }
@@ -57,6 +59,8 @@ impl AppError {
             AppError::ScoresNotRanked => "scores.not_ranked",
             AppError::ScoresNotFound => "scores.not_found",
 
+            AppError::ReplaysNotFound => "replays.not_found",
+
             AppError::UsersNotFound => "users.not_found",
             AppError::UsersInvalidCredentials => "users.invalid_credentials",
         }
@@ -77,6 +81,8 @@ impl AppError {
             AppError::ScoresNotRanked => "The score can not be ranked.",
             AppError::ScoresNotFound => "Score not found.",
 
+            AppError::ReplaysNotFound => "Replay not found.",
+
             AppError::UsersNotFound => "User not found.",
             AppError::UsersInvalidCredentials => "Invalid credentials.",
         }
@@ -94,9 +100,10 @@ impl AppError {
             | AppError::ScoresIllegalScore
             | AppError::ScoresNotRanked => StatusCode::BAD_REQUEST,
 
-            AppError::BeatmapsNotFound | AppError::ScoresNotFound | AppError::UsersNotFound => {
-                StatusCode::NOT_FOUND
-            }
+            AppError::BeatmapsNotFound
+            | AppError::ScoresNotFound
+            | AppError::ReplaysNotFound
+            | AppError::UsersNotFound => StatusCode::NOT_FOUND,
 
             AppError::UsersInvalidCredentials => StatusCode::UNAUTHORIZED,
         }
