@@ -12,10 +12,16 @@ const OSU_WEBSITE_URL: &str = "https://osu.ppy.sh";
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/p/doyoureallywanttoaskpeppy", get(ask_peppy))
         .route("/beatmapsets/{beatmapset_id}", get(redirect))
         .route("/beatmaps/{beatmap_id}", get(redirect))
         .route("/community/forums/topics/{topic_id}", get(redirect))
         .route("/difficulty-rating", post(redirect_difficulty_rating))
+}
+
+/// The client sends users here for help, which peppy can not offer them on this server
+pub async fn ask_peppy() -> &'static str {
+    "This is a peppy skill issue, please ignore."
 }
 
 fn official_url(uri: &Uri) -> String {
