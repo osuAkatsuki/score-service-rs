@@ -143,7 +143,7 @@ impl Beatmap {
                 let has_sv2 = mods.contains(Mods::ScoreV2);
                 (object_count >= 7000) == has_sv2
             }
-            _ => true,
+            _ => !mods.contains(Mods::ScoreV2),
         }
     }
 
