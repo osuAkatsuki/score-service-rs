@@ -17,6 +17,7 @@ pub fn router() -> Router<AppState> {
         .nest("/api/v1", v1::router())
         .nest("/web", osu_web::router())
         .route("/ss/{file_name}", get(osu_web::screenshot::fetch))
+        .route("/d/{beatmapset_id}", get(osu_web::direct::download))
 }
 
 pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
