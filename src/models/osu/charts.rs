@@ -22,7 +22,7 @@ impl Chart {
             .collect();
         let entries_formatted = entries.join("|");
         format!(
-            "chartId:{}|chartUrl:{}|chartName:{}|{entries_formatted}\n",
+            "chartId:{}|chartUrl:{}|chartName:{}|{entries_formatted}",
             self.chart_id, self.chart_url, self.chart_name
         )
     }

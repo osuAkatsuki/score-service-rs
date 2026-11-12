@@ -219,7 +219,7 @@ pub async fn submit(
     ctx.spawn(async move {
         _ = users::handle_pending_username_change(&task_ctx, user.user_id).await;
     });
-    let beatmap = beatmaps::fetch_by_md5(&args.beatmap_md5).await?;
+    let mut beatmap = beatmaps::fetch_by_md5(&args.beatmap_md5).await?;
     if !beatmap.are_mods_rankable(args.score.stats.mods) || !beatmap.has_leaderboards() {
         return Err(AppError::ScoresNotRanked);
     }
@@ -246,6 +246,10 @@ pub async fn submit(
         );
         return Ok(ScoreSubmissionResult::Ok);
     }
+
+    // The counts the client gets to see include this play
+    beatmap.playcount += 1;
+    beatmap.passcount += args.score.stats.passed as i64;
 
     let task_ctx = ctx.clone();
     let task_bm_md5 = beatmap.beatmap_md5.clone();
@@ -521,8 +525,14 @@ pub async fn submit(
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
     });
 
-    let achievements =
-        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
+    // Restricted users do not unlock any achievements
+    let achievements = match restricted {
+        true => Vec::new(),
+        false => {
+            let global_rank = new_rank.or(old_rank);
+            unlock_achievements(ctx, &score, &new_stats, performance.stars, global_rank).await?
+        }
+    };
 
     let beatmap_ranking_chart =
         charts::beatmap_ranking(&beatmap, &personal_best, &score, pb_rank, score_rank);
@@ -561,13 +571,14 @@ pub async fn submit(
             ChartEntry::new_int("pp", Some(old_stats.pp as _), new_stats.pp as _),
         ],
     };*/
-    let charts = vec![
-        beatmap_ranking_chart,
-        overall_ranking_chart,
-        // clan_ranking_chart,
-    ];
 
-    Ok(ScoreSubmissionResult::Charts(beatmap, charts, achievements))
+    Ok(ScoreSubmissionResult::Charts {
+        beatmap,
+        achievements,
+        score_id: score.score_id,
+        beatmap_ranking: beatmap_ranking_chart,
+        overall_ranking: overall_ranking_chart,
+    })
 }
 
 async fn associate_multiplayer_score(

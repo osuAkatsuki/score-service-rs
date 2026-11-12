@@ -88,29 +88,42 @@ bitflags! {
 #[derive(Debug)]
 pub enum ScoreSubmissionResult {
     Ok,
-    Charts(Beatmap, Vec<Chart>, Vec<Achievement>),
+    Charts {
+        beatmap: Beatmap,
+        score_id: i64,
+        beatmap_ranking: Chart,
+        overall_ranking: Chart,
+        achievements: Vec<Achievement>,
+    },
 }
 
 impl ScoreSubmissionResult {
     pub fn osu_format(&self) -> String {
         match self {
             ScoreSubmissionResult::Ok => "ok".to_owned(),
-            ScoreSubmissionResult::Charts(beatmap, charts, new_achievements) => {
+            ScoreSubmissionResult::Charts {
+                beatmap,
+                score_id,
+                beatmap_ranking,
+                overall_ranking,
+                achievements,
+            } => {
                 let beatmap_fmt = beatmap.osu_format();
-                let charts_fmt = charts
-                    .iter()
-                    .map(|c| c.osu_format())
-                    .collect::<Vec<_>>()
-                    .join("
-");
-                let achievements_fmt = new_achievements
+                let beatmap_ranking_fmt = beatmap_ranking.osu_format();
+                let overall_ranking_fmt = overall_ranking.osu_format();
+                let achievements_fmt = achievements
                     .iter()
                     .map(|a| a.osu_format())
                     .collect::<Vec<_>>()
                     .join("/");
 
-                format!("{beatmap_fmt}
-{charts_fmt}|{achievements_fmt}")
+                // The beatmap and every chart are on a line of their own.
+                // The client expects the id of the score at the end of the beatmap ranking
+                // and the unlocked achievements at the end of the overall ranking.
+                format!(
+                    "{beatmap_fmt}|\n|{beatmap_ranking_fmt}|onlineScoreId:{score_id}|\n\
+                    |{overall_ranking_fmt}|achievements-new:{achievements_fmt}"
+                )
             }
         }
     }
@@ -579,11 +592,53 @@ impl FromMultipart for ScoreSubmissionForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::beatmaps::{BeatmapGamemode, RankedStatus};
+    use crate::models::osu::charts::ChartEntry;
     use simple_rijndael::paddings::Pkcs7Padding;
 
     const SCORE_PAYLOAD: &str = "a5b99395a42bd55bc5eb1d2411cbdf8b:cmyui :6fa4a52a3e7e4e0a0f4d8c0a5b9f7e11:\
         300:10:5:20:3:1:1234567:512:True:A:72:True:0:231114221320:20231111";
     const CLIENT_PAYLOAD: &str = "path:adapters.:adapters_md5:uninstall_md5:disk_md5";
+
+    fn beatmap() -> Beatmap {
+        Beatmap {
+            beatmap_id: 75,
+            beatmap_set_id: 1,
+            beatmap_md5: "a5b99395a42bd55bc5eb1d2411cbdf8b".to_owned(),
+            song_name: "Kenji Ninuma - DISCO PRINCE [Normal]".to_owned(),
+            file_name: "Kenji Ninuma - DISCOPRINCE (peppy) [Normal].osu".to_owned(),
+            ar: 6.0,
+            od: 6.0,
+            mode: BeatmapGamemode::Any,
+            max_combo: 314,
+            hit_length: 142,
+            bpm: 120,
+            status: RankedStatus::Ranked,
+            status_frozen: false,
+            latest_update: 1_700_000_000,
+            playcount: 10,
+            passcount: 5,
+            ranked_by: None,
+            rating: 8.5,
+            bancho_ranked_status: None,
+            count_circles: Some(160),
+            count_spinners: Some(4),
+            count_sliders: Some(30),
+            bancho_creator_id: None,
+            bancho_creator_name: None,
+        }
+    }
+
+    fn achievement(icon_file: &str, name: &str, description: &str) -> Achievement {
+        Achievement {
+            id: 1,
+            icon_file: icon_file.to_owned(),
+            name: name.to_owned(),
+            description: description.to_owned(),
+            hidden: false,
+            mode: None,
+        }
+    }
 
     // Encrypts with the padding of the library, which is what the client is compatible with
     fn encrypt(encryptor: &RijndaelCbc<Pkcs7Padding>, iv: &[u8], payload: &str) -> String {
@@ -690,6 +745,43 @@ mod tests {
 
         // A full block of padding follows data that already fills its blocks
         assert_eq!(padding.encode(vec![1; 32]).len(), 64);
+    }
+
+    #[test]
+    fn formats_charts_the_way_the_client_reads_them() {
+        let result = ScoreSubmissionResult::Charts {
+            beatmap: beatmap(),
+            score_id: 1001,
+            beatmap_ranking: Chart {
+                chart_id: "beatmap",
+                chart_url: "https://osu.akatsuki.gg/beatmapsets/1".to_owned(),
+                chart_name: "Beatmap Ranking",
+                entries: vec![
+                    ChartEntry::new_int("rank", None, 1),
+                    ChartEntry::new_float("accuracy", Some(98.123), 99.5),
+                ],
+            },
+            overall_ranking: Chart {
+                chart_id: "overall",
+                chart_url: "https://akatsuki.gg/u/1001".to_owned(),
+                chart_name: "Overall Ranking",
+                entries: vec![ChartEntry::new_int("pp", Some(100), 120)],
+            },
+            achievements: vec![
+                achievement("osu-skill-pass-1", "Rising Star", "Can't go forward without the first steps."),
+                achievement("all-intro-hidden", "Blindsight", "I can see just perfectly"),
+            ],
+        };
+
+        let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
+            |approvedDate:2023-11-14 22:13:20|\n\
+            |chartId:beatmap|chartUrl:https://osu.akatsuki.gg/beatmapsets/1|chartName:Beatmap Ranking\
+            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5|onlineScoreId:1001|\n\
+            |chartId:overall|chartUrl:https://akatsuki.gg/u/1001|chartName:Overall Ranking\
+            |ppBefore:100|ppAfter:120\
+            |achievements-new:osu-skill-pass-1+Rising Star+Can't go forward without the first steps.\
+            /all-intro-hidden+Blindsight+I can see just perfectly";
+        assert_eq!(result.osu_format(), expected);
     }
 
     #[test]

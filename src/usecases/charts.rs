@@ -41,8 +41,8 @@ pub fn beatmap_ranking(
             ),
             ChartEntry::new_int(
                 "pp",
-                personal_best.as_ref().map(|pb| pb.performance as _),
-                new_score.performance as _,
+                personal_best.as_ref().map(|pb| pb.performance.round() as _),
+                new_score.performance.round() as _,
             ),
         ],
     }
