@@ -303,7 +303,7 @@ pub async fn submit(
     };
     let score_rank = scores::find_rank(
         ctx,
-        score.score_id,
+        user.user_id,
         &beatmap.beatmap_md5,
         modded_gamemode,
         ScoreRankingMetric::Performance(score.performance),
