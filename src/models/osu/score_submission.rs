@@ -427,8 +427,19 @@ impl<S: Send + Sync> FromRequest<S> for SubmitScoreArgs {
     type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        // The client sends its anticheat token next to the form
+        let anticheat_token = req
+            .headers()
+            .get("token")
+            .and_then(|token| token.to_str().ok())
+            .map(str::to_owned);
+
         match <Multipart<ScoreSubmissionForm>>::from_request(req, state).await {
-            Ok(form) => decrypt_score_form(form.0),
+            Ok(form) => {
+                let mut args = decrypt_score_form(form.0)?;
+                args.anticheat_token = anticheat_token.or(args.anticheat_token);
+                Ok(args)
+            }
             Err(_) => Err(AppError::MalformedRequest),
         }
     }
@@ -447,7 +458,8 @@ pub struct ScoreSubmissionForm {
     pub pass: String,
     pub osuver: String,
     pub s: String,
-    pub i: Bytes,
+    /// A screenshot the client only attaches when it suspects a flashlight cheat
+    pub i: Option<Bytes>,
     pub iv: String,
     pub replay: Option<Bytes>,
     pub token: Option<String>,
@@ -507,8 +519,8 @@ impl FromMultipart for ScoreSubmissionForm {
             pass: pass.ok_or(FromMultipartError::MissingField("pass"))?,
             osuver: osuver.ok_or(FromMultipartError::MissingField("osuver"))?,
             s: s.ok_or(FromMultipartError::MissingField("s"))?,
-            i: i.ok_or(FromMultipartError::MissingField("i"))?,
             iv: iv.ok_or(FromMultipartError::MissingField("iv"))?,
+            i,
             replay,
             sbk,
             token,
