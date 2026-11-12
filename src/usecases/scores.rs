@@ -6,7 +6,7 @@ use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, ModdedGamemode};
 use crate::entities::mods::Mods;
-use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
+use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
@@ -276,8 +276,28 @@ pub async fn submit(
     );
 
     let task_ctx = ctx.clone();
+    let event = SubmissionEvent {
+        score_data: &args.event_data.score_data,
+        exited_out: args.quit,
+        fail_time: args.fail_time,
+        visual_settings_b64: &args.event_data.visual_settings_b64,
+        updated_beatmap_hash: &args.beatmap_md5,
+        storyboard_md5: args.storyboard_md5.as_ref().map(|x| x.as_str()),
+        iv_b64: &args.event_data.iv_b64,
+        unique_ids: &args.event_data.unique_ids,
+        score_time: args.score_time,
+        osu_version: &args.osu_version,
+        client_hash_b64: &args.event_data.client_hash_b64,
+        score_id: score.score_id,
+        user_id: user.user_id,
+        osu_auth_token: args.anticheat_token.as_ref().map(|x| x.as_str()),
+        mode_vn: modded_gamemode.as_gamemode() as u8,
+        relax: modded_gamemode.mode_mod() as u8,
+    };
+    let event_payload = serde_json::to_string(&event);
     tokio::spawn(async move {
         _ = replays::save_replay(&task_ctx, score.score_id, args.replay_data.unwrap()).await;
+        _ = scores::publish_score_event(&task_ctx, event_payload).await;
     });
 
     let mut restricted = !user.privileges.is_publicly_visible();
@@ -295,8 +315,6 @@ pub async fn submit(
         .await?;
         restricted = true;
     }
-
-    // TODO: publish score amqp event
 
     let mut new_rank = None;
     let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
