@@ -22,6 +22,7 @@ redis = { version = "1.0.4", features = ["aio", "tokio-comp"] }
 reqwest = { version = "0.13.2", features = ["json", "query"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_repr = "0.1.20"
 simple-rijndael = "0.3.2"
 sqlx = { version = "0.8.6", features = ["default", "runtime-tokio", "chrono", "rust_decimal", "mysql"] }
 tokio = { version = "1.50.0", features = ["full"] }
