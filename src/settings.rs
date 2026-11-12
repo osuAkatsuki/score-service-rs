@@ -23,6 +23,12 @@ pub struct AppSettings {
     pub redis_response_timeout: Duration,
     pub redis_wait_timeout: Duration,
 
+    pub amqp_user: String,
+    pub amqp_pass: String,
+    pub amqp_host: String,
+    pub amqp_port: String,
+    pub score_submission_routing_keys: Vec<String>,
+
     pub aws_region: Option<String>,
     pub aws_access_key_id: Option<String>,
     pub aws_secret_access_key: Option<String>,
@@ -62,6 +68,17 @@ impl AppSettings {
         let redis_wait_timeout_secs = u64::from_env("REDIS_WAIT_TIMEOUT_SECS")?;
         let redis_wait_timeout = Duration::from_secs(redis_wait_timeout_secs);
 
+        let amqp_user = env::var("AMQP_USER")?;
+        let amqp_pass = env::var("AMQP_PASS")?;
+        let amqp_host = env::var("AMQP_HOST")?;
+        let amqp_port = env::var("AMQP_PORT")?;
+        let score_submission_routing_keys = env::var("SCORE_SUBMISSION_ROUTING_KEYS")?;
+        let score_submission_routing_keys = score_submission_routing_keys
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_owned())
+            .collect();
+
         let aws_region = env::var("AWS_REGION").ok();
         let aws_access_key_id = env::var("AWS_ACCESS_KEY_ID").ok();
         let aws_secret_access_key = env::var("AWS_SECRET_ACCESS_KEY").ok();
@@ -93,6 +110,12 @@ impl AppSettings {
             redis_connection_timeout,
             redis_response_timeout,
             redis_wait_timeout,
+
+            amqp_user,
+            amqp_pass,
+            amqp_host,
+            amqp_port,
+            score_submission_routing_keys,
 
             aws_region,
             aws_access_key_id,
