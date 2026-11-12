@@ -2,6 +2,7 @@ use crate::adapters::performance_service::PerformanceRequest;
 use crate::adapters::{bancho_service, performance_service};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
+use crate::common::redis_lock::RedisLock;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
@@ -230,6 +231,11 @@ pub async fn submit(
         .mods
         .sanitize_for_mode(args.score.stats.mode);
     let modded_gamemode = ModdedGamemode::from_mode_and_mods(args.score.stats.mode, sanitized_mods);
+
+    // Clients retry requests they did not get a response for in time.
+    // The lock makes the retry wait until it can be recognised as a duplicate.
+    let submission_lock_key = format!("score_submission:{}", args.score.score_md5);
+    let _submission_lock = RedisLock::acquire(ctx, submission_lock_key).await?;
 
     let duplicate = scores::checksum_exists(ctx, modded_gamemode, &args.score.score_md5).await?;
     if duplicate {
