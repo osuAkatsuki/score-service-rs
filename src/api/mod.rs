@@ -43,3 +43,14 @@ pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
     lifecycle::finish_background_tasks(&background_tasks).await;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routes_do_not_conflict() {
+        // Routes that overlap are only noticed once the router is being built
+        let _ = router();
+    }
+}
