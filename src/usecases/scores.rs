@@ -3,7 +3,7 @@ use crate::adapters::performance_service::PerformanceRequest;
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
 use crate::entities::mode::ModdedGamemode;
-use crate::entities::scores::{Score, ScoreSorting, ScoreStatus};
+use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
 use crate::models::osu::charts::{Chart, ChartEntry};
@@ -295,7 +295,7 @@ pub async fn submit(
                 user.user_id,
                 &beatmap.beatmap_md5,
                 modded_gamemode,
-                ScoreSorting::Performance(pb.performance),
+                ScoreRankingMetric::Performance(pb.performance),
             )
             .await?,
         ),
@@ -306,7 +306,7 @@ pub async fn submit(
         score.score_id,
         &beatmap.beatmap_md5,
         modded_gamemode,
-        ScoreSorting::Performance(score.performance),
+        ScoreRankingMetric::Performance(score.performance),
     )
     .await?;
     if status == ScoreStatus::Best && !restricted {

@@ -43,12 +43,12 @@ pub struct Score {
     pub created_at: DateTime<Utc>,
 }
 
-pub enum ScoreSorting {
+pub enum ScoreRankingMetric {
     Performance(f32),
     Score(i32),
 }
 
-impl ScoreSorting {
+impl ScoreRankingMetric {
     pub const fn column_name(&self) -> &'static str {
         match self {
             Self::Performance(_) => "pp",
@@ -57,7 +57,7 @@ impl ScoreSorting {
     }
 }
 
-impl Encode<'_, MySql> for ScoreSorting {
+impl Encode<'_, MySql> for ScoreRankingMetric {
     fn encode_by_ref(
         &self,
         buf: &mut <MySql as Database>::ArgumentBuffer<'_>,
@@ -70,13 +70,13 @@ impl Encode<'_, MySql> for ScoreSorting {
 
     fn produces(&self) -> Option<<MySql as Database>::TypeInfo> {
         match self {
-            ScoreSorting::Performance(_) => Some(<f32 as Type<MySql>>::type_info()),
-            ScoreSorting::Score(_) => Some(<i32 as Type<MySql>>::type_info()),
+            ScoreRankingMetric::Performance(_) => Some(<f32 as Type<MySql>>::type_info()),
+            ScoreRankingMetric::Score(_) => Some(<i32 as Type<MySql>>::type_info()),
         }
     }
 }
 
-impl Type<MySql> for ScoreSorting {
+impl Type<MySql> for ScoreRankingMetric {
     fn type_info() -> <MySql as Database>::TypeInfo {
         <i32 as Type<MySql>>::type_info()
     }
