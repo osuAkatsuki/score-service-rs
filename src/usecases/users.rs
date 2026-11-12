@@ -101,6 +101,16 @@ pub async fn fetch_user_friends(
     Ok(friends)
 }
 
+/// Fetches the friends of the user the credentials belong to
+pub async fn fetch_friends_and_auth(
+    ctx: &RequestContext,
+    username: &str,
+    password: &str,
+) -> ServiceResult<Vec<i32>> {
+    let user = fetch_one_and_auth(ctx, username, password).await?;
+    fetch_user_friends(ctx, user.user_id).await
+}
+
 pub async fn increment_beatmap_playcount(
     ctx: &RequestContext,
     user_id: i64,
