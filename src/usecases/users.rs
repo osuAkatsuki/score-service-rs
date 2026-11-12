@@ -5,42 +5,22 @@ use crate::common::website;
 use crate::entities::mode::ModdedGamemode;
 use crate::models::users::User;
 use crate::repositories::users;
-use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, RwLock};
+use std::collections::HashSet;
 
 /// Usernames are unique regardless of their casing and of spaces being written as underscores
 fn make_safe_username(username: &str) -> String {
     username.trim_end().to_lowercase().replace(' ', "_")
 }
 
-/// Verifying a password against its hash is slow by design, while clients authenticate
-/// with every single request. Passwords that matched a hash once are remembered.
-static VERIFIED_PASSWORDS: LazyLock<RwLock<HashMap<String, String>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-
+/// Verifying a password against its hash is slow by design,
+/// so it must not hold up the other requests in the meantime.
 async fn verify_password(password: &str, password_hash: &str) -> ServiceResult<bool> {
-    let verified_password = VERIFIED_PASSWORDS
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(password_hash)
-        .map(|verified_password| verified_password == password);
-    if let Some(is_verified_password) = verified_password {
-        return Ok(is_verified_password);
-    }
-
     let task_password = password.to_owned();
     let task_password_hash = password_hash.to_owned();
     let is_correct = tokio::task::spawn_blocking(move || {
         bcrypt::verify(&task_password, &task_password_hash).unwrap_or(false)
     })
     .await?;
-
-    if is_correct {
-        VERIFIED_PASSWORDS
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(password_hash.to_owned(), password.to_owned());
-    }
 
     Ok(is_correct)
 }
@@ -150,10 +130,6 @@ mod tests {
 
         assert!(!verify_password("wrong", &password_hash).await.unwrap());
         assert!(verify_password(password, &password_hash).await.unwrap());
-
-        // Answered by the remembered password from here on
-        assert!(verify_password(password, &password_hash).await.unwrap());
-        assert!(!verify_password("wrong", &password_hash).await.unwrap());
     }
 
     #[tokio::test]
