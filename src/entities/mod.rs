@@ -7,3 +7,4 @@ pub mod scores;
 pub mod seasonal_backgrounds;
 pub mod stats;
 pub mod users;
+pub mod match_game_scores;
