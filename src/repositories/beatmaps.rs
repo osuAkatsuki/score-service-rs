@@ -13,6 +13,19 @@ pub async fn increment_playcount(
     Ok(())
 }
 
+pub async fn update_rating(
+    ctx: &RequestContext,
+    beatmap_md5: &str,
+    rating: f64,
+) -> sqlx::Result<()> {
+    sqlx::query("UPDATE beatmaps SET rating = ? WHERE beatmap_md5 = ?")
+        .bind(rating)
+        .bind(beatmap_md5)
+        .execute(&ctx.db)
+        .await?;
+    Ok(())
+}
+
 pub async fn file_name_exists(
     ctx: &RequestContext,
     file_name: &str,
