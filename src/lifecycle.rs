@@ -19,8 +19,8 @@ pub fn initialize_logging(settings: &AppSettings) {
 }
 
 pub async fn initialize_state(settings: &'static AppSettings) -> anyhow::Result<AppState> {
-    let db = initialize_db(&settings).await?;
-    let redis = initialize_redis(&settings)?;
+    let db = initialize_db(settings).await?;
+    let redis = initialize_redis(settings)?;
     let s3_client = initialize_s3(settings);
     let achievements = initialize_achievements(&db).await?;
 

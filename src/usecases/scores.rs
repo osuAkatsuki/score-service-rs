@@ -6,7 +6,6 @@ use crate::entities::mode::ModdedGamemode;
 use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
-use crate::models::osu::charts::{Chart, ChartEntry};
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
 use crate::repositories::scores;
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
@@ -97,7 +96,7 @@ pub async fn submit(
             .iter_names()
             .map(|(name, _)| name)
             .collect();
-        warn!("Found flags {flags:?} on score from ");
+        warn!(user_id = user.user_id, "Found flags {flags:?} on score.");
     }
 
     let task_ctx = ctx.clone();
@@ -287,8 +286,8 @@ pub async fn submit(
 
     // TODO: publish score amqp event
 
-    let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
     let mut new_rank = None;
+    let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
     let pb_rank = match &personal_best {
         Some(pb) => Some(
             scores::find_rank(
@@ -339,13 +338,13 @@ pub async fn submit(
     }
 
     let new_stats = update_stats.apply(&old_stats);
-    let achievements =
-        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
-
     let task_ctx = ctx.clone();
     tokio::spawn(async move {
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
     });
+
+    let achievements =
+        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
 
     let beatmap_ranking_chart =
         charts::beatmap_ranking(&beatmap, &personal_best, &score, pb_rank, score_rank);

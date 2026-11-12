@@ -84,7 +84,7 @@ pub async fn find_rank(
         AND completed = 3
         AND userid != ?
         AND {} >= ?
-        AND (users.privileges & 1) > 0"#,
+        AND (users.privileges & 1) = 1"#,
         mode.scores_table(),
         ranking_metric.column_name(),
     );
