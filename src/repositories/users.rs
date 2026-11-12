@@ -2,6 +2,8 @@ use crate::api::context::RequestContext;
 use crate::entities::mode::ModdedGamemode;
 use crate::entities::users::{User, UsernameChange};
 use crate::models::privileges::Privileges;
+use crate::settings::AppSettings;
+use chrono::Utc;
 use redis::AsyncCommands;
 
 pub async fn fetch_one_by_username_safe(
@@ -33,21 +35,49 @@ pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> sqlx:
     Ok(())
 }
 
+/// Restricts the user unless they already are.
+/// Returns whether the user has been restricted by this call.
 pub async fn restrict_with_note(
     ctx: &RequestContext,
     user_id: i64,
     note: &str,
-) -> sqlx::Result<()> {
-    const QUERY: &str = "UPDATE users SET privileges = (privileges & ~(?)), notes = CONCAT(IFNULL(notes, ''), ?) WHERE id = ?";
+) -> sqlx::Result<bool> {
+    const QUERY: &str = r#"UPDATE users
+    SET privileges = (privileges & ~(?)), ban_datetime = UNIX_TIMESTAMP(),
+    notes = CONCAT(IFNULL(notes, ''), ?)
+    WHERE id = ? AND (privileges & ?) != 0"#;
     let privileges = Privileges::PubliclyVisible;
-    let notes_adt = format!("\nscore-service autorestrict: {note}");
-    sqlx::query(QUERY)
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S");
+    let notes_adt = format!("\n[{now} UTC] score-service autorestrict: {note}");
+    let result = sqlx::query(QUERY)
         .bind(privileges.bits())
         .bind(notes_adt)
         .bind(user_id)
+        .bind(privileges.bits())
+        .execute(&ctx.db)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Adds the restriction to the audit log of the admin panel, attributed to the bot
+pub async fn create_restriction_log(ctx: &RequestContext, user_id: i64) -> sqlx::Result<()> {
+    const QUERY: &str = r#"INSERT INTO rap_logs (userid, text, datetime, through)
+    VALUES (?, ?, UNIX_TIMESTAMP(), ?)"#;
+    let settings = AppSettings::get();
+    sqlx::query(QUERY)
+        .bind(settings.bot_user_id)
+        .bind(format!("restricted user {user_id}"))
+        .bind("score-service")
         .execute(&ctx.db)
         .await?;
     Ok(())
+}
+
+pub async fn fetch_country(ctx: &RequestContext, user_id: i64) -> sqlx::Result<String> {
+    sqlx::query_scalar("SELECT country FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_one(&ctx.db)
+        .await
 }
 
 pub async fn publish_ban_event(ctx: &RequestContext, user_id: i64) -> anyhow::Result<()> {

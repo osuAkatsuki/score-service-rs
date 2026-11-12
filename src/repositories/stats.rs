@@ -121,6 +121,26 @@ fn make_country_key(mode: ModdedGamemode, country: &str) -> String {
     format!("ripple:{}:{country}", mode.redis_board())
 }
 
+/// Takes the user off the global and country leaderboards of all game modes
+pub async fn remove_from_leaderboards(
+    ctx: &RequestContext,
+    user_id: i64,
+    user_country: &str,
+) -> anyhow::Result<()> {
+    let mut pipe = redis::pipe();
+    for mode in ModdedGamemode::ALL {
+        pipe.zrem(make_key(mode), user_id).ignore();
+        if user_country != "XX" {
+            pipe.zrem(make_country_key(mode, user_country), user_id)
+                .ignore();
+        }
+    }
+
+    let mut redis = ctx.redis.get().await?;
+    let _: () = pipe.query_async(redis.deref_mut()).await?;
+    Ok(())
+}
+
 pub async fn fetch_global_rank(
     ctx: &RequestContext,
     user_id: i64,
