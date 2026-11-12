@@ -443,6 +443,12 @@ pub async fn submit(
         restricted = true;
     }
 
+    // The leaderboards of vanilla modes are ordered by score, all others by performance
+    let ranking_metric = |score: &Score| match modded_gamemode.mode_mod() {
+        GamemodeMod::Vanilla => ScoreRankingMetric::Score(score.score),
+        _ => ScoreRankingMetric::Performance(score.performance),
+    };
+
     let mut new_rank = None;
     let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
     let pb_rank = match &personal_best {
@@ -452,7 +458,7 @@ pub async fn submit(
                 user.user_id,
                 &beatmap.beatmap_md5,
                 modded_gamemode,
-                ScoreRankingMetric::Performance(pb.performance),
+                ranking_metric(pb),
             )
             .await?,
         ),
@@ -463,22 +469,29 @@ pub async fn submit(
         user.user_id,
         &beatmap.beatmap_md5,
         modded_gamemode,
-        ScoreRankingMetric::Performance(score.performance),
+        ranking_metric(&score),
     )
     .await?;
-    if status == ScoreStatus::Best && !restricted {
-        let (new_pp, new_avg_acc) =
-            stats::recalculate_weighted(ctx, user.user_id, modded_gamemode).await?;
-        if old_stats.pp != new_pp {
-            update_stats.update_pp(new_pp);
-            update_stats.update_latest_pp_awarded();
+    if status == ScoreStatus::Best {
+        if is_ranked {
+            let (new_pp, new_avg_acc) =
+                stats::recalculate_weighted(ctx, user.user_id, modded_gamemode).await?;
             update_stats.update_avg_accuracy(new_avg_acc);
-            new_rank =
-                stats::update_rank(ctx, user.user_id, modded_gamemode, &user.country, new_pp)
-                    .await?;
+            if old_stats.pp != new_pp {
+                update_stats.update_pp(new_pp);
+            }
+
+            // The stats of restricted users stay up to date, they are just not ranked
+            if old_stats.pp != new_pp && !restricted {
+                update_stats.update_latest_pp_awarded();
+                new_rank =
+                    stats::update_rank(ctx, user.user_id, modded_gamemode, &user.country, new_pp)
+                        .await?;
+            }
         }
+
         // The best play on this beatmap
-        if score_rank == 1 {
+        if score_rank == 1 && !restricted {
             let task_ctx = ctx.clone();
             let task_bm_md5 = beatmap.beatmap_md5.clone();
             ctx.spawn(async move {
