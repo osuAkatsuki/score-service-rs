@@ -46,6 +46,8 @@ pub struct Score {
 
 #[derive(Clone)]
 pub struct LeaderboardScore {
+    /// The position of this score on the leaderboard it was fetched from
+    pub rank: i64,
     pub username: String,
     pub clan_tag: Option<String>,
     pub score_id: i64,
@@ -80,20 +82,22 @@ impl LeaderboardFilter<'_> {
             LeaderboardFilter::Country(_) => "AND users.country = ?".to_owned(),
         }
     }
+
+    /// The condition scores have to meet on their `completed` column.
+    /// A user's best score with specific mods is not necessarily their best score on the beatmap.
+    pub const fn status_query_part(&self) -> &'static str {
+        match self {
+            LeaderboardFilter::Mods(_) => "IN (2, 3)",
+            _ => "= 3",
+        }
+    }
 }
 
 impl LeaderboardScore {
-    pub fn osu_format(
-        &self,
-        rank: i64,
-        include_clan_tag: bool,
-        display_pp_as_score: bool,
-    ) -> String {
-        let score_username = if include_clan_tag &&
-            let Some(clan_tag) = self.clan_tag.as_ref() {
-            &format!("[{}] {}", clan_tag, self.username)
-        } else {
-            &self.username
+    pub fn osu_format(&self, include_clan_tag: bool, display_pp_as_score: bool) -> String {
+        let score_username = match self.clan_tag.as_ref() {
+            Some(clan_tag) if include_clan_tag => &format!("[{}] {}", clan_tag, self.username),
+            _ => &self.username,
         };
         let display_score = match display_pp_as_score {
             true => self.performance as i32,
@@ -112,7 +116,7 @@ impl LeaderboardScore {
             self.perfect_combo as u8,
             self.mods.bits(),
             self.user_id,
-            rank,
+            self.rank,
             self.created_at.timestamp(),
         )
     }
@@ -217,6 +221,7 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for LeaderboardScore {
         let mods = Mods::from_bits_retain(raw_score.mods as _);
         Ok(LeaderboardScore {
             mods,
+            rank: raw_score.score_rank,
             username: raw_score.username,
             clan_tag: raw_score.clan_tag,
             score_id: raw_score.score_id,
@@ -271,6 +276,7 @@ struct RawScore {
 
 #[derive(sqlx::FromRow)]
 struct RawLeaderboardScore {
+    pub score_rank: i64,
     pub username: String,
     pub clan_tag: Option<String>,
     pub score_id: i64,
