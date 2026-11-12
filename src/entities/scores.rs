@@ -135,7 +135,8 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for Score {
             performance: raw_score.pp,
             status: ScoreStatus::from(raw_score.completed),
             score_md5: raw_score.checksum,
-            created_at: DateTime::from_timestamp(raw_score.time as _, 0).expect("Fix yo database"),
+            created_at: DateTime::from_timestamp(raw_score.time as _, 0)
+                .unwrap_or_else(|| DateTime::default()),
         })
     }
 }
