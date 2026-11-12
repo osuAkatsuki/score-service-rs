@@ -5,6 +5,7 @@ pub mod direct;
 pub mod favourites;
 pub mod first_places;
 pub mod lastfm;
+pub mod performance;
 pub mod performance_caps;
 pub mod replays;
 pub mod scores;
