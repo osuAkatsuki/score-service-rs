@@ -18,6 +18,13 @@ use crate::models::beatmaps::RankedStatus;
 use crate::models::osu::leaderboards::{FetchLeaderboardArgs, LeaderboardType, UserLeaderboardScoresView, UserLeaderboardView};
 use crate::settings::AppSettings;
 
+pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> ServiceResult<Score> {
+    match scores::fetch_one(ctx, score_id).await? {
+        Some(score) => Ok(score),
+        None => Err(AppError::ScoresNotFound),
+    }
+}
+
 const CURRENT_LBS_VERSION: i32 = 4;
 pub async fn fetch_leaderboard_view(
     ctx: &RequestContext,

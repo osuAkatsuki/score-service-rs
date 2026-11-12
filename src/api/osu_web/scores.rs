@@ -36,6 +36,6 @@ pub async fn submit(
         Err(AppError::MalformedRequest | AppError::ScoresAnticheatTokenMissing) => {
             Err(ERROR_SUBMISSION_DISALLOWED)
         }
-        Err(AppError::PerformanceFailedCalculating) => unreachable!(),
+        Err(AppError::PerformanceFailedCalculating | AppError::ScoresNotFound) => unreachable!(),
     }
 }
