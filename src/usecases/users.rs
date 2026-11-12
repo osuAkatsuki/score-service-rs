@@ -5,10 +5,49 @@ use crate::common::website;
 use crate::entities::mode::ModdedGamemode;
 use crate::models::users::User;
 use crate::repositories::users;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, RwLock};
+
+/// Usernames are unique regardless of their casing and of spaces being written as underscores
+fn make_safe_username(username: &str) -> String {
+    username.trim_end().to_lowercase().replace(' ', "_")
+}
+
+/// Verifying a password against its hash is slow by design, while clients authenticate
+/// with every single request. Passwords that matched a hash once are remembered.
+static VERIFIED_PASSWORDS: LazyLock<RwLock<HashMap<String, String>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+async fn verify_password(password: &str, password_hash: &str) -> ServiceResult<bool> {
+    let verified_password = VERIFIED_PASSWORDS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(password_hash)
+        .map(|verified_password| verified_password == password);
+    if let Some(is_verified_password) = verified_password {
+        return Ok(is_verified_password);
+    }
+
+    let task_password = password.to_owned();
+    let task_password_hash = password_hash.to_owned();
+    let is_correct = tokio::task::spawn_blocking(move || {
+        bcrypt::verify(&task_password, &task_password_hash).unwrap_or(false)
+    })
+    .await?;
+
+    if is_correct {
+        VERIFIED_PASSWORDS
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(password_hash.to_owned(), password.to_owned());
+    }
+
+    Ok(is_correct)
+}
 
 pub async fn fetch_one_by_username(ctx: &RequestContext, username: &str) -> ServiceResult<User> {
-    match users::fetch_one_by_username(ctx, username).await {
+    let username_safe = make_safe_username(username);
+    match users::fetch_one_by_username_safe(ctx, &username_safe).await {
         Ok(user) => User::try_from(user),
         Err(sqlx::Error::RowNotFound) => Err(AppError::UsersNotFound),
         Err(e) => unexpected(e),
@@ -20,15 +59,14 @@ pub async fn fetch_one_and_auth(
     username: &str,
     password: &str,
 ) -> ServiceResult<User> {
-    let user = match users::fetch_one_by_username(ctx, username).await {
+    let username_safe = make_safe_username(username);
+    let user = match users::fetch_one_by_username_safe(ctx, &username_safe).await {
         Ok(user) => user,
         Err(sqlx::Error::RowNotFound) => return Err(AppError::UsersNotFound),
         Err(e) => return unexpected(e),
     };
 
-    if !bcrypt::verify(&password, &user.password_md5)
-        .map_err(|_| AppError::UsersInvalidCredentials)?
-    {
+    if !verify_password(password, &user.password_md5).await? {
         return Err(AppError::UsersInvalidCredentials);
     }
 
@@ -92,4 +130,34 @@ pub async fn handle_pending_username_change(
 ) -> ServiceResult<()> {
     users::handle_pending_username_change(ctx, user_id).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_usernames_ignore_casing_spaces_and_the_supporter_flag() {
+        assert_eq!(make_safe_username("Cookiezi"), "cookiezi");
+        assert_eq!(make_safe_username("Lil Darkie "), "lil_darkie");
+        assert_eq!(make_safe_username("[ Shigetora ]"), "[_shigetora_]");
+    }
+
+    #[tokio::test]
+    async fn verifies_passwords_against_their_hash() {
+        let password = "5f4dcc3b5aa765d61d8327deb882cf99";
+        let password_hash = bcrypt::hash(password, 4).unwrap();
+
+        assert!(!verify_password("wrong", &password_hash).await.unwrap());
+        assert!(verify_password(password, &password_hash).await.unwrap());
+
+        // Answered by the remembered password from here on
+        assert!(verify_password(password, &password_hash).await.unwrap());
+        assert!(!verify_password("wrong", &password_hash).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn rejects_passwords_of_users_with_a_malformed_hash() {
+        assert!(!verify_password("password", "not a hash").await.unwrap());
+    }
 }

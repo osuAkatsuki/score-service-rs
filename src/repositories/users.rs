@@ -4,7 +4,10 @@ use crate::entities::users::{User, UsernameChange};
 use crate::models::privileges::Privileges;
 use redis::AsyncCommands;
 
-pub async fn fetch_one_by_username(ctx: &RequestContext, username: &str) -> sqlx::Result<User> {
+pub async fn fetch_one_by_username_safe(
+    ctx: &RequestContext,
+    username_safe: &str,
+) -> sqlx::Result<User> {
     const QUERY: &str = r#"
 SELECT
     id, username, username_safe, password_md5, email,
@@ -15,9 +18,9 @@ SELECT
     can_custom_badge, show_custom_badge, custom_badge_icon, custom_badge_name,
     favourite_mode, play_style, vanilla_pp_leaderboards, leaderboard_size, has_free_username_change
 FROM users
-WHERE username = ?"#;
+WHERE username_safe = ?"#;
     sqlx::query_as(QUERY)
-        .bind(username)
+        .bind(username_safe)
         .fetch_one(&ctx.db)
         .await
 }
