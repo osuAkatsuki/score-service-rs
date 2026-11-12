@@ -174,6 +174,10 @@ pub async fn submit(
         return Ok(ScoreSubmissionResult::Ok);
     }
 
+    if args.score.stats.max_combo as u32 > old_stats.max_combo {
+        update_stats.update_max_combo(args.score.stats.max_combo);
+    }
+
     let performance = performance_service::calculate(PerformanceRequest {
         beatmap_id: beatmap.beatmap_id,
         beatmap_md5: &beatmap.beatmap_md5,
@@ -236,10 +240,6 @@ pub async fn submit(
         }
         Some(_) => ScoreStatus::Completed,
     };
-
-    if args.score.stats.max_combo as u32 > old_stats.max_combo {
-        update_stats.update_max_combo(args.score.stats.max_combo);
-    }
 
     let score = scores::create(
         ctx,
