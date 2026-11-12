@@ -494,6 +494,7 @@ pub async fn submit(
         if score_rank == 1 && !restricted {
             let task_ctx = ctx.clone();
             let task_bm_md5 = beatmap.beatmap_md5.clone();
+            let announcement = first_places::announcement(&user, &beatmap, &score);
             ctx.spawn(async move {
                 _ = first_places::handle_first_place(
                     &task_ctx,
@@ -503,6 +504,7 @@ pub async fn submit(
                     user.user_id,
                 )
                 .await;
+                _ = first_places::announce(&announcement).await;
             });
         }
     }
