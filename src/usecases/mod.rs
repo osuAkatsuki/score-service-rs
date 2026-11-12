@@ -1,6 +1,7 @@
 pub mod beatmaps;
 pub mod charts;
 pub mod direct;
+pub mod favourites;
 pub mod first_places;
 pub mod performance_caps;
 pub mod replays;

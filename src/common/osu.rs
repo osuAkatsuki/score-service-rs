@@ -1,5 +1,6 @@
 use serde::de::{Error, Unexpected};
 use serde::{Deserialize, Deserializer};
+use std::fmt::Display;
 
 pub fn format_bool(value: bool) -> &'static str {
     match value {
@@ -19,6 +20,15 @@ pub fn deserialize_bool<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bo
             &"a boolean",
         )),
     }
+}
+
+/// Lists of the osu! client have one item per line
+pub fn join_lines<T: Display>(items: &[T]) -> String {
+    items
+        .iter()
+        .map(|item| item.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub const DATETIME_FORMAT_STR: &str = "%y%m%d%H%M%S";
