@@ -39,7 +39,7 @@ impl ChartEntry {
 
     pub fn new_float(name: &'static str, before: Option<f32>, after: f32) -> Self {
         fn truncate(value: f32) -> f32 {
-            (value * 100.0).trunc() / 100.0
+            (value * 100.0).round() / 100.0
         }
 
         Self {
