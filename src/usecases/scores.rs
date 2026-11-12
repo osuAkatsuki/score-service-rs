@@ -345,10 +345,14 @@ pub async fn submit(
         .stats
         .accuracy
         .grade(args.score.stats.mode, sanitized_mods);
+    // Loved and qualified beatmaps have leaderboards, but do not count towards the stats of a user
+    let is_ranked = beatmap.is_ranked();
     let status = match &personal_best {
         None => {
-            update_stats.adjust_ranked_score(args.score.stats.score);
-            update_stats.increment_grade(calculated_grade);
+            if is_ranked {
+                update_stats.adjust_ranked_score(args.score.stats.score);
+                update_stats.increment_grade(calculated_grade);
+            }
             ScoreStatus::Best
         }
         Some(pb)
@@ -356,11 +360,12 @@ pub async fn submit(
                 || (pb.performance == performance.pp && pb.score < args.score.stats.score) =>
         {
             scores::set_to_completed(ctx, pb.score_id, modded_gamemode).await?;
-            let ranked_score_change = args.score.stats.score - pb.score;
-            update_stats.adjust_ranked_score(ranked_score_change);
-
             let pb_calculated_grade = pb.accuracy.grade(pb.mode.as_gamemode(), pb.mods);
-            if calculated_grade != pb_calculated_grade {
+            if is_ranked {
+                let ranked_score_change = args.score.stats.score - pb.score;
+                update_stats.adjust_ranked_score(ranked_score_change);
+            }
+            if is_ranked && calculated_grade != pb_calculated_grade {
                 update_stats.decrement_grade(pb_calculated_grade);
                 update_stats.increment_grade(calculated_grade);
             }
@@ -421,15 +426,15 @@ pub async fn submit(
     let performance_autorestrict_cap =
         performance_caps::fetch_one(ctx, modded_gamemode, sanitized_mods).await?;
     if !restricted
+        && is_ranked
         && !user.whitelist.is_whitelisted_for(modded_gamemode)
         && score.performance >= performance_autorestrict_cap
     {
-        users::restrict_user(
-            ctx,
-            user.user_id,
-            "Achieved performance exceeds autorestrict limit.",
-        )
-        .await?;
+        let reason = format!(
+            "Achieved performance exceeds autorestrict limit: {:.2}pp with {:?} on {} (score id {}).",
+            score.performance, sanitized_mods, beatmap.song_name, score.score_id,
+        );
+        users::restrict_user(ctx, user.user_id, &reason).await?;
         restricted = true;
     }
 
