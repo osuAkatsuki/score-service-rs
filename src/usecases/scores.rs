@@ -269,7 +269,12 @@ pub async fn submit(
     let old_stats = stats::fetch_one(ctx, user.user_id, modded_gamemode).await?;
     let mut update_stats = UpdateStats::default();
     update_stats.increment_play_count();
-    update_stats.increment_total_hits(args.score.stats.accuracy.total_hits(args.score.stats.mode));
+    update_stats.increment_total_hits(
+        args.score
+            .stats
+            .accuracy
+            .successful_hits(args.score.stats.mode),
+    );
     update_stats.increment_total_score(args.score.stats.score);
     // TODO: calculate playtime properly
     let score_time_secs = args.score_time / 1000;
