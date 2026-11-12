@@ -20,6 +20,7 @@ pub async fn update(
     update: &UpdateStats,
 ) -> ServiceResult<()> {
     stats::update(ctx, user_id, mode, update).await?;
+    stats::publish_update_event(ctx, user_id).await?;
     Ok(())
 }
 
