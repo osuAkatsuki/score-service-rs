@@ -13,7 +13,7 @@ SELECT
     previous_overwrite, whitelist, clan_id, userpage_content,
     userpage_allowed, freeze_reason, country, username_aka,
     can_custom_badge, show_custom_badge, custom_badge_icon, custom_badge_name,
-    favourite_mode, play_style, vanilla_pp_leaderboards, has_free_username_change
+    favourite_mode, play_style, vanilla_pp_leaderboards, leaderboard_size, has_free_username_change
 FROM users
 WHERE username = ?"#;
     sqlx::query_as(QUERY)
@@ -51,6 +51,16 @@ pub async fn publish_ban_event(ctx: &RequestContext, user_id: i64) -> anyhow::Re
     let mut redis = ctx.redis.get().await?;
     let _: () = redis.publish("peppy:ban", user_id.to_string()).await?;
     Ok(())
+}
+
+pub async fn fetch_user_friends(
+    ctx: &RequestContext,
+    user_id: i64,
+) -> sqlx::Result<Vec<i32>> {
+    sqlx::query_scalar("SELECT user2 FROM users_relationships WHERE user1 = ?")
+        .bind(user_id)
+        .fetch_all(&ctx.db)
+        .await
 }
 
 pub async fn increment_beatmap_playcount(

@@ -32,6 +32,7 @@ pub struct User {
     pub favourite_mode: i16,
     pub play_style: i16,
     pub vanilla_pp_leaderboards: bool,
+    pub leaderboard_size: Option<i32>,
     pub has_free_username_change: bool,
 }
 
