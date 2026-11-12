@@ -43,6 +43,7 @@ pub fn router() -> Router<AppState> {
         .route("/osu-getfavourites.php", get(favorites::fetch))
         .route("/osu-addfavourite.php", get(favorites::add))
         .route("/osu-getreplay.php", get(get_replay::handler))
+        .route("/replays/{score_id}", get(get_replay::download))
         .route("/osu-comment.php", post(post_comment::handler))
         .route("/osu-osz2-getscores.php", get(scores::fetch_leaderboard))
         .route("/osu-submit-modular-selector.php", post(scores::submit))

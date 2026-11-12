@@ -1,7 +1,8 @@
 use crate::adapters::s3;
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
-use crate::usecases::{scores, stats, users};
+use crate::models::replays::ReplayFile;
+use crate::usecases::{beatmaps, scores, stats, users};
 use axum::body::Bytes;
 
 pub async fn save_replay(
@@ -39,4 +40,15 @@ pub async fn watch(
     }
 
     Ok(replay)
+}
+
+/// Builds a replay file of the score that can be opened by any client.
+/// What is stored of a replay are only the inputs of the player.
+pub async fn fetch_replay_file(ctx: &RequestContext, score_id: i64) -> ServiceResult<ReplayFile> {
+    let score = scores::fetch_one(ctx, score_id).await?;
+    let replay = download_replay(ctx, score_id).await?;
+    let username = users::fetch_username(ctx, score.user_id).await?;
+    let beatmap = beatmaps::fetch_by_md5(&score.beatmap_md5).await?;
+
+    Ok(ReplayFile::new(&score, &username, &beatmap, &replay))
 }

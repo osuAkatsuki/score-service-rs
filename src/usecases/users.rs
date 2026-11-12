@@ -54,6 +54,13 @@ pub async fn fetch_one_and_auth(
     User::try_from(user)
 }
 
+pub async fn fetch_username(ctx: &RequestContext, user_id: i64) -> ServiceResult<String> {
+    match users::fetch_username(ctx, user_id).await? {
+        Some(username) => Ok(username),
+        None => Err(AppError::UsersNotFound),
+    }
+}
+
 pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> ServiceResult<()> {
     users::update_latest_activity(ctx, user_id).await?;
     Ok(())

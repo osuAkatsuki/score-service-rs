@@ -73,6 +73,13 @@ pub async fn create_restriction_log(ctx: &RequestContext, user_id: i64) -> sqlx:
     Ok(())
 }
 
+pub async fn fetch_username(ctx: &RequestContext, user_id: i64) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(&ctx.db)
+        .await
+}
+
 pub async fn fetch_country(ctx: &RequestContext, user_id: i64) -> sqlx::Result<String> {
     sqlx::query_scalar("SELECT country FROM users WHERE id = ?")
         .bind(user_id)
