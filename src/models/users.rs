@@ -1,35 +1,26 @@
 use crate::common::error::AppError;
-use crate::entities::mode::ModdedGamemode;
+use crate::entities::mode::{GamemodeMod, ModdedGamemode};
 use crate::entities::users::User as UserEntity;
 use crate::models::privileges::Privileges;
+use bitflags::bitflags;
 use chrono::{DateTime, Utc};
 
-#[derive(Debug)]
-pub enum Whitelist {
-    None = 0,
-    Vanilla = 1,
-    Relax = 2,
-    All = 3,
+bitflags! {
+    /// The kinds of game modes a user is exempt from automatic restrictions in
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct Whitelist: u8 {
+        const Vanilla = 1 << 0;
+        const Relax = 1 << 1;
+        const Autopilot = 1 << 2;
+    }
 }
 
 impl Whitelist {
     pub fn is_whitelisted_for(&self, mode: ModdedGamemode) -> bool {
-        match self {
-            Whitelist::None => false,
-            Whitelist::All => true,
-            Whitelist::Vanilla => match mode {
-                ModdedGamemode::Standard
-                | ModdedGamemode::Taiko
-                | ModdedGamemode::Catch
-                | ModdedGamemode::Mania => true,
-                _ => false,
-            },
-            Whitelist::Relax => match mode {
-                ModdedGamemode::StandardRelax
-                | ModdedGamemode::TaikoRelax
-                | ModdedGamemode::CatchRelax => true,
-                _ => false,
-            },
+        match mode.mode_mod() {
+            GamemodeMod::Vanilla => self.contains(Whitelist::Vanilla),
+            GamemodeMod::Relax => self.contains(Whitelist::Relax),
+            GamemodeMod::Autopilot => self.contains(Whitelist::Autopilot),
         }
     }
 }
@@ -84,19 +75,6 @@ impl User {
     }
 }
 
-impl TryFrom<i8> for Whitelist {
-    type Error = AppError;
-    fn try_from(value: i8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Whitelist::None),
-            1 => Ok(Whitelist::Vanilla),
-            2 => Ok(Whitelist::Relax),
-            3 => Ok(Whitelist::All),
-            _ => Err(AppError::Unexpected),
-        }
-    }
-}
-
 impl TryFrom<UserEntity> for User {
     type Error = AppError;
     fn try_from(value: UserEntity) -> Result<Self, Self::Error> {
@@ -128,7 +106,7 @@ impl TryFrom<UserEntity> for User {
             notes: value.notes,
             ban_datetime: value.ban_datetime,
             previous_overwrite_time: value.previous_overwrite,
-            whitelist: Whitelist::try_from(value.whitelist)?,
+            whitelist: Whitelist::from_bits_truncate(value.whitelist as u8),
             clan_id: value.clan_id,
             userpage_allowed: value.userpage_allowed,
             freeze_reason: value.freeze_reason,
@@ -142,5 +120,21 @@ impl TryFrom<UserEntity> for User {
             leaderboard_size: value.leaderboard_size,
             has_free_username_change: value.has_free_username_change,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whitelists_apply_per_kind_of_game_mode() {
+        let whitelist = Whitelist::from_bits_truncate(5);
+        assert!(whitelist.is_whitelisted_for(ModdedGamemode::Mania));
+        assert!(!whitelist.is_whitelisted_for(ModdedGamemode::TaikoRelax));
+        assert!(whitelist.is_whitelisted_for(ModdedGamemode::StandardAutopilot));
+
+        let whitelist = Whitelist::from_bits_truncate(0);
+        assert!(!whitelist.is_whitelisted_for(ModdedGamemode::Standard));
     }
 }
