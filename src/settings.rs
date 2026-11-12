@@ -1,4 +1,4 @@
-use crate::common::env::FromEnv;
+use crate::common::env::{FromEnv, optional_var};
 use std::env;
 use std::net::IpAddr;
 use std::ops::Deref;
@@ -81,11 +81,11 @@ impl AppSettings {
             .map(|s| s.to_owned())
             .collect();
 
-        let aws_region = env::var("AWS_REGION").ok();
-        let aws_access_key_id = env::var("AWS_ACCESS_KEY_ID").ok();
-        let aws_secret_access_key = env::var("AWS_SECRET_ACCESS_KEY").ok();
-        let aws_endpoint_url = env::var("AWS_ENDPOINT_URL").ok();
-        let aws_bucket_name = env::var("AWS_BUCKET_NAME").ok();
+        let aws_region = optional_var("AWS_REGION");
+        let aws_access_key_id = optional_var("AWS_ACCESS_KEY_ID");
+        let aws_secret_access_key = optional_var("AWS_SECRET_ACCESS_KEY");
+        let aws_endpoint_url = optional_var("AWS_ENDPOINT_URL");
+        let aws_bucket_name = optional_var("AWS_BUCKET_NAME");
 
         let leaderboard_size = i32::from_env("LEADERBOARD_SIZE").unwrap_or(100);
         let bot_user_id = i64::from_env("BOT_USER_ID").unwrap_or(999);
@@ -94,9 +94,7 @@ impl AppSettings {
         let beatmaps_service_base_url = env::var("BEATMAPS_SERVICE_BASE_URL")?;
         let performance_service_base_url = env::var("PERFORMANCE_SERVICE_BASE_URL")?;
         let frontend_base_url = env::var("FRONTEND_URL")?;
-        let discord_ac_logs_webhook_url = env::var("DISCORD_AC_LOGS_WEBHOOK_URL")
-            .ok()
-            .filter(|url| !url.trim().is_empty());
+        let discord_ac_logs_webhook_url = optional_var("DISCORD_AC_LOGS_WEBHOOK_URL");
 
         Ok(AppSettings {
             app_env,
