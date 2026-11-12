@@ -10,6 +10,12 @@ use lapin::ConnectionProperties;
 use redis::{AsyncConnectionConfig, Commands};
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::{MySql, Pool};
+use std::time::Duration;
+use tokio_util::task::TaskTracker;
+use tracing::{info, warn};
+
+/// How long background tasks are given to finish once the service shuts down
+const BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_millis(7500);
 
 pub fn initialize_logging(settings: &AppSettings) {
     tracing_subscriber::fmt()
@@ -33,7 +39,44 @@ pub async fn initialize_state(settings: &'static AppSettings) -> anyhow::Result<
         s3_client,
         amqp_channel,
         achievements,
+        background_tasks: TaskTracker::new(),
     })
+}
+
+/// Resolves once the service has been asked to stop
+pub async fn shutdown_signal() {
+    let interrupt = async {
+        _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate) => _ = terminate.recv().await,
+            Err(_) => std::future::pending().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = interrupt => {},
+        _ = terminate => {},
+    }
+    info!("Shutting down");
+}
+
+/// Gives the tasks that are still running in the background the chance to finish
+pub async fn finish_background_tasks(background_tasks: &TaskTracker) {
+    background_tasks.close();
+    let all_finished = tokio::time::timeout(BACKGROUND_TASKS_TIMEOUT, background_tasks.wait());
+    if all_finished.await.is_err() {
+        warn!(
+            pending_tasks = background_tasks.len(),
+            "Timed out waiting for background tasks to finish"
+        );
+    }
 }
 
 pub async fn initialize_amqp_channel(settings: &AppSettings) -> anyhow::Result<Option<Arc<lapin::Channel>>> {

@@ -26,5 +26,6 @@ serde_repr = "0.1.20"
 simple-rijndael = "0.3.2"
 sqlx = { version = "0.8.6", features = ["default", "runtime-tokio", "chrono", "rust_decimal", "mysql"] }
 tokio = { version = "1.50.0", features = ["full"] }
+tokio-util = { version = "0.7.18", features = ["rt"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["json"] }

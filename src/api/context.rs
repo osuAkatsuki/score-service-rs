@@ -7,6 +7,7 @@ use crate::common::state::AppState;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use sqlx::{MySql, Pool};
+use tokio_util::task::TaskTracker;
 
 #[derive(Clone)]
 pub struct RequestContext {
@@ -15,7 +16,19 @@ pub struct RequestContext {
     pub amqp_channel: Option<Arc<lapin::Channel>>,
     pub s3_client: Option<aws_sdk_s3::Client>,
     pub achievements: &'static [Achievement],
+    pub background_tasks: TaskTracker,
     pub request_ip: IpAddrInfo,
+}
+
+impl RequestContext {
+    /// Runs a task the response of the request does not depend on.
+    /// The service waits for these tasks to finish before it shuts down.
+    pub fn spawn<F>(&self, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.background_tasks.spawn(task);
+    }
 }
 
 impl FromRequestParts<AppState> for RequestContext {
@@ -29,6 +42,7 @@ impl FromRequestParts<AppState> for RequestContext {
             amqp_channel: state.amqp_channel.clone(),
             s3_client: state.s3_client.clone(),
             achievements: state.achievements,
+            background_tasks: state.background_tasks.clone(),
             request_ip: ip_info,
         })
     }
