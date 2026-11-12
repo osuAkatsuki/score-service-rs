@@ -31,20 +31,25 @@ pub struct PerformanceResult {
     pub od: f32,
 }
 
-pub async fn calculate(args: PerformanceRequest<'_>) -> ServiceResult<PerformanceResult> {
-    /*let url = make_url("/api/v1/calculate");
-    let response = CLIENT.post(url).json(&[args]).send().await?;
+/// Calculates the performance of multiple scores at once.
+/// The results are in the order of the requested scores.
+pub async fn calculate_many(
+    args: &[PerformanceRequest<'_>],
+) -> ServiceResult<Vec<PerformanceResult>> {
+    let url = make_url("/api/v1/calculate");
+    let response = CLIENT.post(url).json(args).send().await?;
     if response.status() != StatusCode::OK {
-        Err(AppError::PerformanceFailedCalculating)
-    } else {
-        let results: [PerformanceResult; 1] = response.json().await?;
-        Ok(results[0])
-    }*/
-    Ok(PerformanceResult {
-        max_combo: 314,
-        stars: 2.63,
-        pp: 50.0,
-        ar: 6.0,
-        od: 6.0,
-    })
+        return Err(AppError::PerformanceFailedCalculating);
+    }
+
+    let results: Vec<PerformanceResult> = response.json().await?;
+    match results.len() == args.len() {
+        true => Ok(results),
+        false => Err(AppError::PerformanceFailedCalculating),
+    }
+}
+
+pub async fn calculate(args: PerformanceRequest<'_>) -> ServiceResult<PerformanceResult> {
+    let results = calculate_many(&[args]).await?;
+    Ok(results[0])
 }
