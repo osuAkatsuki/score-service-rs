@@ -272,7 +272,8 @@ pub async fn submit(
     let mut restricted = !user.privileges.is_publicly_visible();
     let performance_autorestrict_cap =
         performance_caps::fetch_one(ctx, modded_gamemode, sanitized_mods).await?;
-    if !user.whitelist.is_whitelisted_for(modded_gamemode)
+    if !restricted
+        && !user.whitelist.is_whitelisted_for(modded_gamemode)
         && score.performance >= performance_autorestrict_cap
     {
         users::restrict_user(
