@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use crate::achievements::Achievement;
+use crate::common::amqp;
 use crate::common::redis_pool::{RedisPool, RedisPoolManager};
 use crate::common::state::AppState;
 use crate::repositories::achievements;
@@ -84,9 +85,9 @@ pub async fn initialize_amqp_channel(settings: &AppSettings) -> anyhow::Result<O
         return Ok(None);
     }
 
-    let url = format!("amqp://{}:{}@{}:{}/", settings.amqp_user, settings.amqp_pass, settings.amqp_host, settings.amqp_port);
+    let uri = amqp::broker_uri(&settings.amqp_user, &settings.amqp_pass, &settings.amqp_host, &settings.amqp_port)?;
     let rt = async_rs::Runtime::tokio_current();
-    let amqp_conn = lapin::Connection::connect_with_runtime(&url, ConnectionProperties::default(), rt).await?;
+    let amqp_conn = lapin::Connection::connect_uri_with_runtime(uri, ConnectionProperties::default(), rt).await?;
     let channel = amqp_conn.create_channel().await?;
     Ok(Some(Arc::new(channel)))
 }
