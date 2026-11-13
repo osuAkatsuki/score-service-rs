@@ -13,7 +13,7 @@ use crate::models::achievements::Achievement;
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
 use crate::repositories::{match_game_scores, scores};
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use crate::models::beatmaps::RankedStatus;
 use crate::models::osu::leaderboards::{FetchLeaderboardArgs, LeaderboardType, UserLeaderboardScoresView, UserLeaderboardView};
 use crate::settings::AppSettings;
@@ -446,7 +446,9 @@ pub async fn submit(
     let event_payload = serde_json::to_string(&event);
     ctx.spawn(async move {
         _ = replays::save_replay(&task_ctx, score.score_id, args.replay_data.unwrap()).await;
-        _ = scores::publish_score_event(&task_ctx, event_payload).await;
+        if let Err(e) = scores::publish_score_event(&task_ctx, event_payload).await {
+            error!(score_id = score.score_id, "Failed to publish the score submission: {e}");
+        }
     });
 
     let mut restricted = !user.privileges.is_publicly_visible();

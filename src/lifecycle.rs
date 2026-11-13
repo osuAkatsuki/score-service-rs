@@ -1,13 +1,12 @@
 use std::sync::Arc;
 use crate::achievements::Achievement;
-use crate::common::amqp;
+use crate::common::amqp::{self, AmqpPublisher};
 use crate::common::redis_pool::{RedisPool, RedisPoolManager};
 use crate::common::state::AppState;
 use crate::repositories::achievements;
 use crate::settings::AppSettings;
 use aws_sdk_s3::config::{Credentials, Region};
 use deadpool::Runtime;
-use lapin::ConnectionProperties;
 use redis::{AsyncConnectionConfig, Commands};
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::{MySql, Pool};
@@ -30,7 +29,7 @@ pub fn initialize_logging(settings: &AppSettings) {
 pub async fn initialize_state(settings: &'static AppSettings) -> anyhow::Result<AppState> {
     let db = initialize_db(settings).await?;
     let redis = initialize_redis(settings)?;
-    let amqp_channel = initialize_amqp_channel(settings).await?;
+    let amqp_publisher = initialize_amqp_publisher(settings).await?;
     let s3_client = initialize_s3(settings);
     let achievements = initialize_achievements(&db).await?;
 
@@ -38,7 +37,7 @@ pub async fn initialize_state(settings: &'static AppSettings) -> anyhow::Result<
         db,
         redis,
         s3_client,
-        amqp_channel,
+        amqp_publisher,
         achievements,
         background_tasks: TaskTracker::new(),
     })
@@ -80,16 +79,14 @@ pub async fn finish_background_tasks(background_tasks: &TaskTracker) {
     }
 }
 
-pub async fn initialize_amqp_channel(settings: &AppSettings) -> anyhow::Result<Option<Arc<lapin::Channel>>> {
+pub async fn initialize_amqp_publisher(settings: &AppSettings) -> anyhow::Result<Option<Arc<AmqpPublisher>>> {
     if settings.score_submission_routing_keys.is_empty() {
         return Ok(None);
     }
 
     let uri = amqp::broker_uri(&settings.amqp_user, &settings.amqp_pass, &settings.amqp_host, &settings.amqp_port)?;
-    let rt = async_rs::Runtime::tokio_current();
-    let amqp_conn = lapin::Connection::connect_uri_with_runtime(uri, ConnectionProperties::default(), rt).await?;
-    let channel = amqp_conn.create_channel().await?;
-    Ok(Some(Arc::new(channel)))
+    let publisher = AmqpPublisher::connect(uri).await?;
+    Ok(Some(Arc::new(publisher)))
 }
 
 pub fn initialize_s3(settings: &'static AppSettings) -> Option<aws_sdk_s3::Client> {
