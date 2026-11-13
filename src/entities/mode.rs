@@ -2,8 +2,9 @@ use serde_repr::Deserialize_repr;
 use crate::entities::mods::Mods;
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Deserialize_repr)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Deserialize_repr)]
 pub enum Gamemode {
+    #[default]
     Standard = 0,
     Taiko = 1,
     Catch = 2,
