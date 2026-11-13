@@ -117,7 +117,7 @@ impl Mods {
     }
 }
 
-pub const MODS_SHORT: [&'static str; 31] = [
+pub const MODS_SHORT: [&str; 31] = [
     "NF", "EZ", "TD", "HD", "HR", "SD", "DT", "RX", "HT", "NC", "FL", "AT", "SO", "AP", "PF", "4K",
     "5K", "6K", "7K", "8K", "FI", "RN", "CN", "TP", "9K", "CO", "1K", "3K", "2K", "V2", "MR",
 ];
@@ -195,7 +195,7 @@ impl FromStr for Mods {
     }
 }
 
-const MODS_DEBUG: [&'static str; 31] = [
+const MODS_DEBUG: [&str; 31] = [
     "NoFail",
     "Easy",
     "TouchDevice",
