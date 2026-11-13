@@ -88,26 +88,32 @@ bitflags! {
 #[derive(Debug)]
 pub enum ScoreSubmissionResult {
     Ok,
-    Charts {
-        beatmap: Beatmap,
-        score_id: i64,
-        beatmap_ranking: Chart,
-        overall_ranking: Chart,
-        achievements: Vec<Achievement>,
-    },
+    Charts(Box<SubmissionCharts>),
+}
+
+/// What the client shows on the results screen of a submitted score.
+/// Boxed in [`ScoreSubmissionResult`] to keep submissions without charts small.
+#[derive(Debug)]
+pub struct SubmissionCharts {
+    pub beatmap: Beatmap,
+    pub score_id: i64,
+    pub beatmap_ranking: Chart,
+    pub overall_ranking: Chart,
+    pub achievements: Vec<Achievement>,
 }
 
 impl ScoreSubmissionResult {
     pub fn osu_format(&self) -> String {
         match self {
             ScoreSubmissionResult::Ok => "ok".to_owned(),
-            ScoreSubmissionResult::Charts {
-                beatmap,
-                score_id,
-                beatmap_ranking,
-                overall_ranking,
-                achievements,
-            } => {
+            ScoreSubmissionResult::Charts(charts) => {
+                let SubmissionCharts {
+                    beatmap,
+                    score_id,
+                    beatmap_ranking,
+                    overall_ranking,
+                    achievements,
+                } = charts.as_ref();
                 let beatmap_fmt = beatmap.osu_format();
                 let beatmap_ranking_fmt = beatmap_ranking.osu_format();
                 let overall_ranking_fmt = overall_ranking.osu_format();
@@ -746,7 +752,7 @@ mod tests {
 
     #[test]
     fn formats_charts_the_way_the_client_reads_them() {
-        let result = ScoreSubmissionResult::Charts {
+        let result = ScoreSubmissionResult::Charts(Box::new(SubmissionCharts {
             beatmap: beatmap(),
             score_id: 1001,
             beatmap_ranking: Chart {
@@ -768,7 +774,7 @@ mod tests {
                 achievement("osu-skill-pass-1", "Rising Star", "Can't go forward without the first steps."),
                 achievement("all-intro-hidden", "Blindsight", "I can see just perfectly"),
             ],
-        };
+        }));
 
         let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
             |approvedDate:2023-11-14 22:13:20|\n\

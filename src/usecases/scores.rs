@@ -10,7 +10,9 @@ use crate::entities::mods::Mods;
 use crate::entities::scores::{LeaderboardFilter, Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
-use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
+use crate::models::osu::score_submission::{
+    ScoreFlags, ScoreSubmissionResult, SubmissionCharts, SubmitScoreArgs,
+};
 use crate::repositories::{match_game_scores, scores};
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{error, info, warn};
@@ -586,13 +588,13 @@ pub async fn submit(
         ],
     };*/
 
-    Ok(ScoreSubmissionResult::Charts {
+    Ok(ScoreSubmissionResult::Charts(Box::new(SubmissionCharts {
         beatmap,
         achievements,
         score_id: score.score_id,
         beatmap_ranking: beatmap_ranking_chart,
         overall_ranking: overall_ranking_chart,
-    })
+    })))
 }
 
 async fn associate_multiplayer_score(
