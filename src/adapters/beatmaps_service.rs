@@ -39,20 +39,34 @@ pub struct AkatsukiBeatmap {
     pub bancho_creator_name: Option<String>,
 }
 
-#[derive(Serialize)]
+/// A beatmap is looked up by exactly one of these
+#[derive(Serialize, Default)]
 struct BeatmapLookupQuery<'a> {
-    beatmap_md5: &'a str,
+    beatmap_md5: Option<&'a str>,
+    beatmap_id: Option<i32>,
+}
+
+async fn lookup(query: BeatmapLookupQuery<'_>) -> ServiceResult<AkatsukiBeatmap> {
+    let url = make_url("/api/akatsuki/v1/beatmaps/lookup");
+    let response = CLIENT.get(url).query(&query).send().await?;
+    match response.status() {
+        StatusCode::NOT_FOUND => Err(AppError::BeatmapsNotFound),
+        _ => Ok(response.error_for_status()?.json().await?),
+    }
 }
 
 pub async fn fetch_by_md5(beatmap_md5: &str) -> ServiceResult<AkatsukiBeatmap> {
-    let url = make_url("/api/akatsuki/v1/beatmaps/lookup");
-    let response = CLIENT
-        .get(url)
-        .query(&BeatmapLookupQuery { beatmap_md5 })
-        .send()
-        .await?;
-    match response.status() {
-        StatusCode::NOT_FOUND => Err(AppError::BeatmapsNotFound),
-        _ => Ok(response.json().await?),
-    }
+    let query = BeatmapLookupQuery {
+        beatmap_md5: Some(beatmap_md5),
+        ..Default::default()
+    };
+    lookup(query).await
+}
+
+pub async fn fetch_by_id(beatmap_id: i32) -> ServiceResult<AkatsukiBeatmap> {
+    let query = BeatmapLookupQuery {
+        beatmap_id: Some(beatmap_id),
+        ..Default::default()
+    };
+    lookup(query).await
 }
