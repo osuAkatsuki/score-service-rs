@@ -2,6 +2,7 @@ use crate::entities::accuracy::Accuracy;
 use crate::entities::mode::{Gamemode, ModdedGamemode};
 use crate::entities::mods::Mods;
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Encode, Error, MySql, Type};
@@ -169,4 +170,24 @@ struct RawScore {
     pub accuracy: f32,
     pub pp: f32,
     pub checksum: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SubmissionEvent<'a> {
+    pub score_data: &'a str,
+    pub exited_out: bool,
+    pub fail_time: i32,
+    pub visual_settings_b64: &'a str,
+    pub updated_beatmap_hash: &'a str,
+    pub storyboard_md5: Option<&'a str>,
+    pub iv_b64: &'a str,
+    pub unique_ids: &'a str,
+    pub score_time: i32,
+    pub osu_version: &'a str,
+    pub client_hash_b64: &'a str,
+    pub score_id: i64,
+    pub user_id: i64,
+    pub osu_auth_token: Option<&'a str>,
+    pub mode_vn: u8,
+    pub relax: u8,
 }

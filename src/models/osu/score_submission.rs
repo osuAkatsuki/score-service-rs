@@ -27,9 +27,11 @@ pub struct SubmitScoreArgs {
     pub password_md5: String,
     pub beatmap_md5: String,
     pub storyboard_md5: Option<String>,
+    pub osu_version: String,
     // pub visual_settings: VisualSettings,
     pub replay_data: Option<Bytes>,
     pub anticheat_token: Option<String>,
+    pub event_data: EventData,
 }
 
 #[derive(Debug)]
@@ -356,6 +358,15 @@ impl FromStr for UniqueIds {
     }
 }
 
+#[derive(Debug)]
+pub struct EventData {
+    pub score_data: String,
+    pub visual_settings_b64: String,
+    pub iv_b64: String,
+    pub unique_ids: String,
+    pub client_hash_b64: String,
+}
+
 fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArgs> {
     let decryption_key = format!("osu!-scoreburgr---------{}", form.osuver);
     let iv = base64_simd::forgiving_decode_to_vec(form.iv.as_bytes())?;
@@ -387,16 +398,25 @@ fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArg
     let fail_time = form.ft.parse::<i32>()?;
     let score_time = form.st.parse::<i32>()?;
     let unique_ids = UniqueIds::from_str(&form.c1)?;
+    let event_data = EventData {
+        score_data: form.score,
+        visual_settings_b64: form.fs,
+        iv_b64: form.iv,
+        unique_ids: form.c1,
+        client_hash_b64: form.s,
+    };
     Ok(SubmitScoreArgs {
         quit,
         score,
         fail_time,
+        event_data,
         score_time,
         unique_ids,
         client_info,
         // visual_settings,
         beatmap_md5: form.bmk,
         password_md5: form.pass,
+        osu_version: form.osuver,
         replay_data: form.replay,
         anticheat_token: form.token,
         storyboard_md5: form.sbk,

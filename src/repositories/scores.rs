@@ -4,6 +4,10 @@ use crate::entities::mode::ModdedGamemode;
 use crate::entities::mods::Mods;
 use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
 use chrono::Utc;
+use lapin::BasicProperties;
+use lapin::options::BasicPublishOptions;
+use lapin::types::ShortString;
+use crate::settings::AppSettings;
 
 pub async fn create(
     ctx: &RequestContext,
@@ -204,4 +208,25 @@ pub async fn checksum_exists(
         .bind(checksum)
         .fetch_one(&ctx.db)
         .await
+}
+
+pub async fn publish_score_event(
+    ctx: &RequestContext,
+    args: serde_json::Result<String>,
+) -> anyhow::Result<()> {
+    if let Some(amqp_channel) = ctx.amqp_channel.as_ref() {
+        let payload = args?;
+        let settings = AppSettings::get();
+        for routing_key in settings.score_submission_routing_keys.iter() {
+            amqp_channel.basic_publish(
+                ShortString::default(),
+                ShortString::from(routing_key.clone()),
+                BasicPublishOptions::default(),
+                payload.as_bytes(),
+                BasicProperties::default(),
+            ).await?;
+        }
+    }
+
+    Ok(())
 }
