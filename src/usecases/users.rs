@@ -61,6 +61,11 @@ pub async fn fetch_username(ctx: &RequestContext, user_id: i64) -> ServiceResult
     }
 }
 
+pub async fn is_online(ctx: &RequestContext, user_id: i64) -> ServiceResult<bool> {
+    let is_online = users::is_online(ctx, user_id).await?;
+    Ok(is_online)
+}
+
 pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> ServiceResult<()> {
     users::update_latest_activity(ctx, user_id).await?;
     Ok(())

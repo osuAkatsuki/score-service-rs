@@ -39,7 +39,10 @@ pub async fn submit(
         Err(
             AppError::PerformanceFailedCalculating
             | AppError::ScoresNotFound
-            | AppError::ReplaysNotFound,
+            | AppError::ReplaysNotFound
+            | AppError::ScreenshotsNotAllowed
+            | AppError::ScreenshotsTooManyRequests
+            | AppError::ScreenshotsInvalidFile,
         ) => unreachable!(),
     }
 }
