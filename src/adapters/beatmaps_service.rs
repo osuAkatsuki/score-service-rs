@@ -3,6 +3,10 @@ use crate::settings::AppSettings;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
+use std::time::Duration;
+
+/// Searching the mirror can take a while when it has to ask its own upstreams
+const MIRROR_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn make_url(endpoint: &str) -> String {
     let settings = AppSettings::get();
@@ -37,6 +41,68 @@ pub struct AkatsukiBeatmap {
     pub count_sliders: Option<i32>,
     pub bancho_creator_id: Option<i32>,
     pub bancho_creator_name: Option<String>,
+}
+
+/// A beatmap in the format of the cheesegull beatmap mirror
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct CheesegullBeatmap {
+    pub diff_name: String,
+    pub mode: i32,
+    #[serde(rename = "AR")]
+    pub ar: f32,
+    #[serde(rename = "OD")]
+    pub od: f32,
+    #[serde(rename = "CS")]
+    pub cs: f32,
+    #[serde(rename = "HP")]
+    pub hp: f32,
+    pub difficulty_rating: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct CheesegullBeatmapset {
+    #[serde(rename = "SetID")]
+    pub set_id: i32,
+    pub children_beatmaps: Vec<CheesegullBeatmap>,
+    pub ranked_status: i32,
+    pub last_update: String,
+    pub artist: String,
+    pub title: String,
+    pub creator: String,
+    pub has_video: bool,
+}
+
+#[derive(Serialize)]
+pub struct BeatmapsetSearchArgs<'a> {
+    pub query: Option<&'a str>,
+    pub mode: Option<i32>,
+    pub status: Option<i32>,
+    pub offset: i32,
+    pub amount: i32,
+}
+
+pub async fn search_beatmapsets(
+    args: BeatmapsetSearchArgs<'_>,
+) -> ServiceResult<Vec<CheesegullBeatmapset>> {
+    let url = make_url("/public/api/search");
+    let response = CLIENT
+        .get(url)
+        .query(&args)
+        .timeout(MIRROR_TIMEOUT)
+        .send()
+        .await?;
+    Ok(response.error_for_status()?.json().await?)
+}
+
+pub async fn fetch_beatmapset(beatmapset_id: i32) -> ServiceResult<CheesegullBeatmapset> {
+    let url = make_url(&format!("/public/api/s/{beatmapset_id}"));
+    let response = CLIENT.get(url).timeout(MIRROR_TIMEOUT).send().await?;
+    match response.status() {
+        StatusCode::NOT_FOUND => Err(AppError::BeatmapsNotFound),
+        _ => Ok(response.error_for_status()?.json().await?),
+    }
 }
 
 /// A beatmap is looked up by exactly one of these
