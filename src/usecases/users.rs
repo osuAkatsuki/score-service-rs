@@ -4,8 +4,9 @@ use crate::common::error::{AppError, ServiceResult, unexpected};
 use crate::common::website;
 use crate::entities::mode::ModdedGamemode;
 use crate::models::users::User;
-use crate::repositories::users;
+use crate::repositories::{stats, users};
 use std::collections::HashSet;
+use tracing::info;
 
 /// Usernames are unique regardless of their casing and of spaces being written as underscores
 fn make_safe_username(username: &str) -> String {
@@ -59,11 +60,24 @@ pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> Servi
 }
 
 pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> ServiceResult<()> {
-    users::restrict_with_note(ctx, user_id, reason).await?;
+    // There is nothing left to do for users that are restricted already
+    let newly_restricted = users::restrict_with_note(ctx, user_id, reason).await?;
+    if !newly_restricted {
+        return Ok(());
+    }
+
+    users::create_restriction_log(ctx, user_id).await?;
     users::publish_ban_event(ctx, user_id).await?;
 
-    let profile_link = website::get_profile_link(user_id);
-    discord::send_ac_red_embed("User restricted", reason, Some(&profile_link)).await?;
+    let country = users::fetch_country(ctx, user_id).await?;
+    stats::remove_from_leaderboards(ctx, user_id, &country).await?;
+    info!(user_id, reason, "User has been restricted");
+
+    let task_reason = reason.to_owned();
+    ctx.spawn(async move {
+        let profile_link = website::get_profile_link(user_id);
+        _ = discord::send_ac_red_embed("User restricted", &task_reason, Some(&profile_link)).await;
+    });
     Ok(())
 }
 

@@ -34,6 +34,17 @@ pub enum GamemodeMod {
 }
 
 impl ModdedGamemode {
+    pub const ALL: [ModdedGamemode; 8] = [
+        ModdedGamemode::Standard,
+        ModdedGamemode::Taiko,
+        ModdedGamemode::Catch,
+        ModdedGamemode::Mania,
+        ModdedGamemode::StandardRelax,
+        ModdedGamemode::TaikoRelax,
+        ModdedGamemode::CatchRelax,
+        ModdedGamemode::StandardAutopilot,
+    ];
+
     pub fn mode_mod(&self) -> GamemodeMod {
         match self {
             ModdedGamemode::Standard

@@ -36,6 +36,7 @@ pub struct AppSettings {
     pub aws_bucket_name: Option<String>,
 
     pub leaderboard_size: i32,
+    pub bot_user_id: i64,
     pub app_ci_key: String,
     pub bancho_service_base_url: String,
     pub beatmaps_service_base_url: String,
@@ -87,6 +88,7 @@ impl AppSettings {
         let aws_bucket_name = env::var("AWS_BUCKET_NAME").ok();
 
         let leaderboard_size = i32::from_env("LEADERBOARD_SIZE").unwrap_or(100);
+        let bot_user_id = i64::from_env("BOT_USER_ID").unwrap_or(999);
         let app_ci_key = env::var("APP_CI_KEY")?;
         let bancho_service_base_url = env::var("BANCHO_SERVICE_BASE_URL")?;
         let beatmaps_service_base_url = env::var("BEATMAPS_SERVICE_BASE_URL")?;
@@ -126,6 +128,7 @@ impl AppSettings {
             aws_bucket_name,
 
             leaderboard_size,
+            bot_user_id,
             app_ci_key,
             bancho_service_base_url,
             beatmaps_service_base_url,
