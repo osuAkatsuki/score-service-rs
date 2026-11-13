@@ -1,5 +1,4 @@
 use crate::api::context::RequestContext;
-use crate::common::axum_ip::IpAddrInfo;
 use crate::common::multipart::Multipart;
 use crate::models::screenshot::ScreenshotForm;
 use crate::usecases::screenshots;
@@ -10,10 +9,9 @@ use axum::response::{IntoResponse, Response};
 /// The client opens whatever it receives as the name of a screenshot
 pub async fn handler(
     ctx: RequestContext,
-    client: IpAddrInfo,
     form: Multipart<ScreenshotForm>,
 ) -> Result<String, &'static str> {
-    match screenshots::upload(&ctx, client.ip_addr, &form.0.u, &form.0.p, form.0.ss).await {
+    match screenshots::upload(&ctx, &form.0.u, &form.0.p, form.0.ss).await {
         Ok(file_name) => Ok(file_name),
         _ => Err("https://akatsuki.gg/"),
     }

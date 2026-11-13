@@ -38,9 +38,12 @@ pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
         .merge(router())
         .route("/_health", get(health::health_check))
         .with_state(state);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(lifecycle::shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(lifecycle::shutdown_signal())
+    .await?;
 
     lifecycle::finish_background_tasks(&background_tasks).await;
     Ok(())

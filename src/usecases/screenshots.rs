@@ -6,7 +6,6 @@ use crate::repositories::screenshots;
 use crate::usecases::users;
 use axum::body::Bytes;
 use rand::distr::{Alphanumeric, SampleString};
-use std::net::IpAddr;
 use tracing::{info, warn};
 
 const SCREENSHOTS_FOLDER: &str = "screenshots";
@@ -16,7 +15,6 @@ const FILE_NAME_LENGTH: usize = 8;
 /// Stores a screenshot taken by the osu! client and returns the name of its file
 pub async fn upload(
     ctx: &RequestContext,
-    client_ip_addr: IpAddr,
     username: &str,
     password_md5: &str,
     screenshot: Bytes,
@@ -40,7 +38,7 @@ pub async fn upload(
         return Err(AppError::ScreenshotsNotAllowed);
     }
 
-    if !screenshots::start_upload_cooldown(ctx, client_ip_addr).await? {
+    if !screenshots::start_upload_cooldown(ctx, ctx.request_ip.ip_addr).await? {
         warn!(
             user_id = user.user_id,
             "Tried to upload screenshots too quickly"

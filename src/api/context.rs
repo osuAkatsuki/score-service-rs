@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::achievements::Achievement;
 use crate::common::amqp::AmqpPublisher;
+use crate::common::axum_ip::IpAddrInfo;
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_pool::RedisPool;
 use crate::common::state::AppState;
@@ -18,6 +19,7 @@ pub struct RequestContext {
     pub s3_client: Option<aws_sdk_s3::Client>,
     pub achievements: &'static [Achievement],
     pub background_tasks: TaskTracker,
+    pub request_ip: IpAddrInfo,
     pub user_agent: Option<String>,
 }
 
@@ -36,6 +38,7 @@ impl FromRequestParts<AppState> for RequestContext {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> ServiceResult<Self> {
+        let ip_info = IpAddrInfo::from_request_parts(parts, state).await?;
         let user_agent = parts
             .headers
             .get(USER_AGENT)
@@ -48,6 +51,7 @@ impl FromRequestParts<AppState> for RequestContext {
             s3_client: state.s3_client.clone(),
             achievements: state.achievements,
             background_tasks: state.background_tasks.clone(),
+            request_ip: ip_info,
             user_agent,
         })
     }
