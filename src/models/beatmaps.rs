@@ -143,18 +143,28 @@ impl Beatmap {
                 let has_sv2 = mods.contains(Mods::ScoreV2);
                 (object_count >= 7000) == has_sv2
             }
-            _ => true,
+            _ => !mods.contains(Mods::ScoreV2),
         }
     }
 
-    pub fn set_url(&self) -> String {
+    /// The beatmap pages of the osu! website are served from a subdomain of the frontend
+    fn osu_base_url() -> String {
         let settings = AppSettings::get();
         let server_url = settings
             .frontend_base_url
             .replace("https://", "")
             .replace("http://", "");
+        format!("https://osu.{server_url}")
+    }
+
+    pub fn url(&self) -> String {
+        format!("{}/beatmaps/{}", Self::osu_base_url(), self.beatmap_id)
+    }
+
+    pub fn set_url(&self) -> String {
         format!(
-            "https://osu.{server_url}/beatmapsets/{}",
+            "{}/beatmapsets/{}",
+            Self::osu_base_url(),
             self.beatmap_set_id
         )
     }

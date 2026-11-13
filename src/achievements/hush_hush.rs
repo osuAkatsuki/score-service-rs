@@ -1,8 +1,8 @@
-use crate::entities::scores::{Score, ScoreGrade, ScoreStatus};
+use crate::entities::scores::{Score, ScoreGrade};
 use crate::entities::stats::Stats;
 
 fn passed(score: &Score) -> bool {
-    score.status != ScoreStatus::Failed
+    score.status.is_pass()
 }
 
 pub fn dont_let_bunny_distract(

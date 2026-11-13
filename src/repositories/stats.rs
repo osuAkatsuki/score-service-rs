@@ -112,6 +112,15 @@ pub async fn update(
     Ok(())
 }
 
+/// Tells bancho that the stats it has cached for the user are outdated
+pub async fn publish_update_event(ctx: &RequestContext, user_id: i64) -> anyhow::Result<()> {
+    let mut redis = ctx.redis.get().await?;
+    let _: () = redis
+        .publish("peppy:update_cached_stats", user_id.to_string())
+        .await?;
+    Ok(())
+}
+
 fn make_key(mode: ModdedGamemode) -> String {
     format!("ripple:{}", mode.redis_board())
 }

@@ -22,10 +22,18 @@ pub enum ScoreGrade {
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ScoreStatus {
-    Failed = 0,
-    Unprocessed = 1,
+    /// The play was abandoned before the end of the beatmap
+    Quit = 0,
+    Failed = 1,
+    /// A pass that is not the best score of the user on the beatmap
     Completed = 2,
     Best = 3,
+}
+
+impl ScoreStatus {
+    pub const fn is_pass(&self) -> bool {
+        matches!(self, ScoreStatus::Completed | ScoreStatus::Best)
+    }
 }
 
 pub struct Score {
@@ -174,8 +182,8 @@ impl ScoreGrade {
 impl From<i8> for ScoreStatus {
     fn from(value: i8) -> Self {
         match value {
-            0 => ScoreStatus::Failed,
-            1 => ScoreStatus::Unprocessed,
+            0 => ScoreStatus::Quit,
+            1 => ScoreStatus::Failed,
             2 => ScoreStatus::Completed,
             3 => ScoreStatus::Best,
             _ => ScoreStatus::Failed,

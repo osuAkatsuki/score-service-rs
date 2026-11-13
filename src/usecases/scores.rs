@@ -2,6 +2,7 @@ use crate::adapters::performance_service::PerformanceRequest;
 use crate::adapters::{bancho_service, performance_service};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
+use crate::common::redis_lock::RedisLock;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
@@ -127,6 +128,15 @@ pub async fn submit(
         return Err(AppError::ScoresAnticheatTokenMissing);
     }
 
+    if ctx.user_agent.as_deref() != Some("osu!") {
+        let reason = format!(
+            "Submitted score with unexpected user agent: {}.",
+            ctx.user_agent.as_deref().unwrap_or("none")
+        );
+        users::restrict_user(ctx, user.user_id, &reason).await?;
+        return Err(AppError::ScoresIllegalScore);
+    }
+
     // Honestly no idea where the 24 comes from
     // Just using it to match https://github.com/osuAkatsuki/score-service/blob/master/app/api/score_sub.py#L348
     if !args.quit
@@ -209,7 +219,7 @@ pub async fn submit(
     ctx.spawn(async move {
         _ = users::handle_pending_username_change(&task_ctx, user.user_id).await;
     });
-    let beatmap = beatmaps::fetch_by_md5(&args.beatmap_md5).await?;
+    let mut beatmap = beatmaps::fetch_by_md5(&args.beatmap_md5).await?;
     if !beatmap.are_mods_rankable(args.score.stats.mods) || !beatmap.has_leaderboards() {
         return Err(AppError::ScoresNotRanked);
     }
@@ -222,6 +232,11 @@ pub async fn submit(
         .sanitize_for_mode(args.score.stats.mode);
     let modded_gamemode = ModdedGamemode::from_mode_and_mods(args.score.stats.mode, sanitized_mods);
 
+    // Clients retry requests they did not get a response for in time.
+    // The lock makes the retry wait until it can be recognised as a duplicate.
+    let submission_lock_key = format!("score_submission:{}", args.score.score_md5);
+    let _submission_lock = RedisLock::acquire(ctx, submission_lock_key).await?;
+
     let duplicate = scores::checksum_exists(ctx, modded_gamemode, &args.score.score_md5).await?;
     if duplicate {
         warn!(
@@ -231,6 +246,10 @@ pub async fn submit(
         );
         return Ok(ScoreSubmissionResult::Ok);
     }
+
+    // The counts the client gets to see include this play
+    beatmap.playcount += 1;
+    beatmap.passcount += args.score.stats.passed as i64;
 
     let task_ctx = ctx.clone();
     let task_bm_md5 = beatmap.beatmap_md5.clone();
@@ -260,7 +279,12 @@ pub async fn submit(
     let old_stats = stats::fetch_one(ctx, user.user_id, modded_gamemode).await?;
     let mut update_stats = UpdateStats::default();
     update_stats.increment_play_count();
-    update_stats.increment_total_hits(args.score.stats.accuracy.total_hits(args.score.stats.mode));
+    update_stats.increment_total_hits(
+        args.score
+            .stats
+            .accuracy
+            .successful_hits(args.score.stats.mode),
+    );
     update_stats.increment_total_score(args.score.stats.score);
     // TODO: calculate playtime properly
     let score_time_secs = args.score_time / 1000;
@@ -269,6 +293,10 @@ pub async fn submit(
     update_stats.increment_playtime(score_time_secs);
 
     if args.quit || !args.score.stats.passed {
+        let status = match args.quit {
+            true => ScoreStatus::Quit,
+            false => ScoreStatus::Failed,
+        };
         scores::create(
             ctx,
             user.user_id,
@@ -281,7 +309,7 @@ pub async fn submit(
             sanitized_mods,
             0.0,
             &args.score.score_md5,
-            ScoreStatus::Failed,
+            status,
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -303,7 +331,8 @@ pub async fn submit(
     })
     .await;
 
-    // Skip stats calculation if performance calc fails
+    // Skip stats calculation if performance calc fails.
+    // The score is kept as a pass that is worth nothing until its performance is recalculated.
     let Ok(performance) = performance else {
         scores::create(
             ctx,
@@ -317,7 +346,7 @@ pub async fn submit(
             sanitized_mods,
             0.0,
             &args.score.score_md5,
-            ScoreStatus::Unprocessed,
+            ScoreStatus::Completed,
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -331,10 +360,14 @@ pub async fn submit(
         .stats
         .accuracy
         .grade(args.score.stats.mode, sanitized_mods);
+    // Loved and qualified beatmaps have leaderboards, but do not count towards the stats of a user
+    let is_ranked = beatmap.is_ranked();
     let status = match &personal_best {
         None => {
-            update_stats.adjust_ranked_score(args.score.stats.score);
-            update_stats.increment_grade(calculated_grade);
+            if is_ranked {
+                update_stats.adjust_ranked_score(args.score.stats.score);
+                update_stats.increment_grade(calculated_grade);
+            }
             ScoreStatus::Best
         }
         Some(pb)
@@ -342,11 +375,12 @@ pub async fn submit(
                 || (pb.performance == performance.pp && pb.score < args.score.stats.score) =>
         {
             scores::set_to_completed(ctx, pb.score_id, modded_gamemode).await?;
-            let ranked_score_change = args.score.stats.score - pb.score;
-            update_stats.adjust_ranked_score(ranked_score_change);
-
             let pb_calculated_grade = pb.accuracy.grade(pb.mode.as_gamemode(), pb.mods);
-            if calculated_grade != pb_calculated_grade {
+            if is_ranked {
+                let ranked_score_change = args.score.stats.score - pb.score;
+                update_stats.adjust_ranked_score(ranked_score_change);
+            }
+            if is_ranked && calculated_grade != pb_calculated_grade {
                 update_stats.decrement_grade(pb_calculated_grade);
                 update_stats.increment_grade(calculated_grade);
             }
@@ -407,17 +441,23 @@ pub async fn submit(
     let performance_autorestrict_cap =
         performance_caps::fetch_one(ctx, modded_gamemode, sanitized_mods).await?;
     if !restricted
+        && is_ranked
         && !user.whitelist.is_whitelisted_for(modded_gamemode)
         && score.performance >= performance_autorestrict_cap
     {
-        users::restrict_user(
-            ctx,
-            user.user_id,
-            "Achieved performance exceeds autorestrict limit.",
-        )
-        .await?;
+        let reason = format!(
+            "Achieved performance exceeds autorestrict limit: {:.2}pp with {:?} on {} (score id {}).",
+            score.performance, sanitized_mods, beatmap.song_name, score.score_id,
+        );
+        users::restrict_user(ctx, user.user_id, &reason).await?;
         restricted = true;
     }
+
+    // The leaderboards of vanilla modes are ordered by score, all others by performance
+    let ranking_metric = |score: &Score| match modded_gamemode.mode_mod() {
+        GamemodeMod::Vanilla => ScoreRankingMetric::Score(score.score),
+        _ => ScoreRankingMetric::Performance(score.performance),
+    };
 
     let mut new_rank = None;
     let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
@@ -428,7 +468,7 @@ pub async fn submit(
                 user.user_id,
                 &beatmap.beatmap_md5,
                 modded_gamemode,
-                ScoreRankingMetric::Performance(pb.performance),
+                ranking_metric(pb),
             )
             .await?,
         ),
@@ -439,24 +479,32 @@ pub async fn submit(
         user.user_id,
         &beatmap.beatmap_md5,
         modded_gamemode,
-        ScoreRankingMetric::Performance(score.performance),
+        ranking_metric(&score),
     )
     .await?;
-    if status == ScoreStatus::Best && !restricted {
-        let (new_pp, new_avg_acc) =
-            stats::recalculate_weighted(ctx, user.user_id, modded_gamemode).await?;
-        if old_stats.pp != new_pp {
-            update_stats.update_pp(new_pp);
-            update_stats.update_latest_pp_awarded();
+    if status == ScoreStatus::Best {
+        if is_ranked {
+            let (new_pp, new_avg_acc) =
+                stats::recalculate_weighted(ctx, user.user_id, modded_gamemode).await?;
             update_stats.update_avg_accuracy(new_avg_acc);
-            new_rank =
-                stats::update_rank(ctx, user.user_id, modded_gamemode, &user.country, new_pp)
-                    .await?;
+            if old_stats.pp != new_pp {
+                update_stats.update_pp(new_pp);
+            }
+
+            // The stats of restricted users stay up to date, they are just not ranked
+            if old_stats.pp != new_pp && !restricted {
+                update_stats.update_latest_pp_awarded();
+                new_rank =
+                    stats::update_rank(ctx, user.user_id, modded_gamemode, &user.country, new_pp)
+                        .await?;
+            }
         }
+
         // The best play on this beatmap
-        if score_rank == 1 {
+        if score_rank == 1 && !restricted {
             let task_ctx = ctx.clone();
             let task_bm_md5 = beatmap.beatmap_md5.clone();
+            let announcement = first_places::announcement(&user, &beatmap, &score);
             ctx.spawn(async move {
                 _ = first_places::handle_first_place(
                     &task_ctx,
@@ -466,6 +514,7 @@ pub async fn submit(
                     user.user_id,
                 )
                 .await;
+                _ = first_places::announce(&announcement).await;
             });
         }
     }
@@ -476,8 +525,14 @@ pub async fn submit(
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
     });
 
-    let achievements =
-        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
+    // Restricted users do not unlock any achievements
+    let achievements = match restricted {
+        true => Vec::new(),
+        false => {
+            let global_rank = new_rank.or(old_rank);
+            unlock_achievements(ctx, &score, &new_stats, performance.stars, global_rank).await?
+        }
+    };
 
     let beatmap_ranking_chart =
         charts::beatmap_ranking(&beatmap, &personal_best, &score, pb_rank, score_rank);
@@ -516,13 +571,14 @@ pub async fn submit(
             ChartEntry::new_int("pp", Some(old_stats.pp as _), new_stats.pp as _),
         ],
     };*/
-    let charts = vec![
-        beatmap_ranking_chart,
-        overall_ranking_chart,
-        // clan_ranking_chart,
-    ];
 
-    Ok(ScoreSubmissionResult::Charts(beatmap, charts, achievements))
+    Ok(ScoreSubmissionResult::Charts {
+        beatmap,
+        achievements,
+        score_id: score.score_id,
+        beatmap_ranking: beatmap_ranking_chart,
+        overall_ranking: overall_ranking_chart,
+    })
 }
 
 async fn associate_multiplayer_score(

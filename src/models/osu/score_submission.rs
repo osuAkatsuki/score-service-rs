@@ -12,8 +12,9 @@ use axum::extract::{FromRequest, Multipart as MultipartExtractor, Request};
 use axum::response::{IntoResponse, Response};
 use bitflags::bitflags;
 use chrono::NaiveDateTime;
+use simple_rijndael::Errors as RijndaelError;
 use simple_rijndael::impls::RijndaelCbc;
-use simple_rijndael::paddings::Pkcs7Padding;
+use simple_rijndael::paddings::Padding;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -87,27 +88,42 @@ bitflags! {
 #[derive(Debug)]
 pub enum ScoreSubmissionResult {
     Ok,
-    Charts(Beatmap, Vec<Chart>, Vec<Achievement>),
+    Charts {
+        beatmap: Beatmap,
+        score_id: i64,
+        beatmap_ranking: Chart,
+        overall_ranking: Chart,
+        achievements: Vec<Achievement>,
+    },
 }
 
 impl ScoreSubmissionResult {
     pub fn osu_format(&self) -> String {
         match self {
             ScoreSubmissionResult::Ok => "ok".to_owned(),
-            ScoreSubmissionResult::Charts(beatmap, charts, new_achievements) => {
+            ScoreSubmissionResult::Charts {
+                beatmap,
+                score_id,
+                beatmap_ranking,
+                overall_ranking,
+                achievements,
+            } => {
                 let beatmap_fmt = beatmap.osu_format();
-                let charts_fmt = charts
-                    .iter()
-                    .map(|c| c.osu_format())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let achievements_fmt = new_achievements
+                let beatmap_ranking_fmt = beatmap_ranking.osu_format();
+                let overall_ranking_fmt = overall_ranking.osu_format();
+                let achievements_fmt = achievements
                     .iter()
                     .map(|a| a.osu_format())
                     .collect::<Vec<_>>()
                     .join("/");
 
-                format!("{beatmap_fmt}\n{charts_fmt}|{achievements_fmt}")
+                // The beatmap and every chart are on a line of their own.
+                // The client expects the id of the score at the end of the beatmap ranking
+                // and the unlocked achievements at the end of the overall ranking.
+                format!(
+                    "{beatmap_fmt}|\n|{beatmap_ranking_fmt}|onlineScoreId:{score_id}|\n\
+                    |{overall_ranking_fmt}|achievements-new:{achievements_fmt}"
+                )
             }
         }
     }
@@ -367,36 +383,81 @@ pub struct EventData {
     pub client_hash_b64: String,
 }
 
+/// PKCS#7 padding that reports invalid padding instead of panicking like the one of the library.
+/// Anything that was not encrypted with the expected key decrypts to garbage.
+#[derive(Debug)]
+struct StrictPkcs7Padding(usize);
+
+impl Padding for StrictPkcs7Padding {
+    fn new(block_size: usize) -> Self {
+        Self(block_size)
+    }
+
+    fn size(&self) -> usize {
+        self.0
+    }
+
+    fn encode(&self, mut input_vec: Vec<u8>) -> Vec<u8> {
+        let pad_size = self.0 - (input_vec.len() % self.0);
+        input_vec.resize(input_vec.len() + pad_size, pad_size as u8);
+        input_vec
+    }
+
+    fn decode(&self, mut source: Vec<u8>) -> Result<Vec<u8>, RijndaelError> {
+        let pad_size = source.last().copied().unwrap_or(0) as usize;
+        if pad_size == 0 || pad_size > self.0 || pad_size > source.len() {
+            return Err(RijndaelError::InvalidDataSize);
+        }
+
+        source.truncate(source.len() - pad_size);
+        Ok(source)
+    }
+}
+
+type ScoreDecryptor = RijndaelCbc<StrictPkcs7Padding>;
+
+fn decrypt(decryptor: &ScoreDecryptor, iv: &[u8], encrypted_b64: &str) -> ServiceResult<String> {
+    let encrypted = base64_simd::forgiving_decode_to_vec(encrypted_b64.as_bytes())
+        .map_err(|_| AppError::MalformedRequest)?;
+    // The library expects there to be at least one block
+    if encrypted.is_empty() {
+        return Err(AppError::MalformedRequest);
+    }
+
+    let decrypted = decryptor
+        .decrypt(iv, encrypted)
+        .map_err(|_| AppError::MalformedRequest)?;
+    String::from_utf8(decrypted).map_err(|_| AppError::MalformedRequest)
+}
+
 fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArgs> {
     let decryption_key = format!("osu!-scoreburgr---------{}", form.osuver);
-    let iv = base64_simd::forgiving_decode_to_vec(form.iv.as_bytes())?;
+    let iv = base64_simd::forgiving_decode_to_vec(form.iv.as_bytes())
+        .map_err(|_| AppError::MalformedRequest)?;
     if decryption_key.len() != 32 || iv.len() != 32 {
         return Err(AppError::MalformedRequest);
     }
 
-    let decryptor: RijndaelCbc<Pkcs7Padding> = RijndaelCbc::new(decryption_key.as_bytes(), 32)?;
+    let decryptor: ScoreDecryptor = RijndaelCbc::new(decryption_key.as_bytes(), 32)?;
 
-    let score = base64_simd::forgiving_decode_to_vec(form.score.as_bytes())?;
-    let decrypted_score = decryptor.decrypt(&iv, score)?;
+    let score = decrypt(&decryptor, &iv, &form.score)?;
+    let score = ScoreAttributes::from_str(&score)?;
 
-    let client_info = base64_simd::forgiving_decode_to_vec(form.s.as_bytes())?;
-    let decrypted_client_info = decryptor.decrypt(&iv, client_info)?;
+    let client_info = decrypt(&decryptor, &iv, &form.s)?;
+    let client_info = ClientHashes::from_str(&client_info)?;
 
-    /*let visual_settings = base64_simd::forgiving_decode_to_vec(form.fs.as_bytes())?;
-    let decrypted_visual_settings = decryptor.decrypt(&iv, visual_settings)?;*/
-
-    let score = std::str::from_utf8(&decrypted_score)?;
-    let score = ScoreAttributes::from_str(score)?;
-
-    let client_info = std::str::from_utf8(&decrypted_client_info)?;
-    let client_info = ClientHashes::from_str(client_info)?;
-
-    /*let visual_settings = std::str::from_utf8(&decrypted_visual_settings)?;
-    let visual_settings = VisualSettings::from_str(visual_settings)?;*/
+    /*let visual_settings = decrypt(&decryptor, &iv, &form.fs)?;
+    let visual_settings = VisualSettings::from_str(&visual_settings)?;*/
 
     let quit = form.x == "1";
-    let fail_time = form.ft.parse::<i32>()?;
-    let score_time = form.st.parse::<i32>()?;
+    let fail_time = form
+        .ft
+        .parse::<i32>()
+        .map_err(|_| AppError::MalformedRequest)?;
+    let score_time = form
+        .st
+        .parse::<i32>()
+        .map_err(|_| AppError::MalformedRequest)?;
     let unique_ids = UniqueIds::from_str(&form.c1)?;
     let event_data = EventData {
         score_data: form.score,
@@ -427,8 +488,19 @@ impl<S: Send + Sync> FromRequest<S> for SubmitScoreArgs {
     type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        // The client sends its anticheat token next to the form
+        let anticheat_token = req
+            .headers()
+            .get("token")
+            .and_then(|token| token.to_str().ok())
+            .map(str::to_owned);
+
         match <Multipart<ScoreSubmissionForm>>::from_request(req, state).await {
-            Ok(form) => decrypt_score_form(form.0),
+            Ok(form) => {
+                let mut args = decrypt_score_form(form.0)?;
+                args.anticheat_token = anticheat_token.or(args.anticheat_token);
+                Ok(args)
+            }
             Err(_) => Err(AppError::MalformedRequest),
         }
     }
@@ -447,7 +519,8 @@ pub struct ScoreSubmissionForm {
     pub pass: String,
     pub osuver: String,
     pub s: String,
-    pub i: Bytes,
+    /// A screenshot the client only attaches when it suspects a flashlight cheat
+    pub i: Option<Bytes>,
     pub iv: String,
     pub replay: Option<Bytes>,
     pub token: Option<String>,
@@ -507,11 +580,212 @@ impl FromMultipart for ScoreSubmissionForm {
             pass: pass.ok_or(FromMultipartError::MissingField("pass"))?,
             osuver: osuver.ok_or(FromMultipartError::MissingField("osuver"))?,
             s: s.ok_or(FromMultipartError::MissingField("s"))?,
-            i: i.ok_or(FromMultipartError::MissingField("i"))?,
             iv: iv.ok_or(FromMultipartError::MissingField("iv"))?,
+            i,
             replay,
             sbk,
             token,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::beatmaps::{BeatmapGamemode, RankedStatus};
+    use crate::models::osu::charts::ChartEntry;
+    use simple_rijndael::paddings::Pkcs7Padding;
+
+    const SCORE_PAYLOAD: &str = "a5b99395a42bd55bc5eb1d2411cbdf8b:cmyui :6fa4a52a3e7e4e0a0f4d8c0a5b9f7e11:\
+        300:10:5:20:3:1:1234567:512:True:A:72:True:0:231114221320:20231111";
+    const CLIENT_PAYLOAD: &str = "path:adapters.:adapters_md5:uninstall_md5:disk_md5";
+
+    fn beatmap() -> Beatmap {
+        Beatmap {
+            beatmap_id: 75,
+            beatmap_set_id: 1,
+            beatmap_md5: "a5b99395a42bd55bc5eb1d2411cbdf8b".to_owned(),
+            song_name: "Kenji Ninuma - DISCO PRINCE [Normal]".to_owned(),
+            file_name: "Kenji Ninuma - DISCOPRINCE (peppy) [Normal].osu".to_owned(),
+            ar: 6.0,
+            od: 6.0,
+            mode: BeatmapGamemode::Any,
+            max_combo: 314,
+            hit_length: 142,
+            bpm: 120,
+            status: RankedStatus::Ranked,
+            status_frozen: false,
+            latest_update: 1_700_000_000,
+            playcount: 10,
+            passcount: 5,
+            ranked_by: None,
+            rating: 8.5,
+            bancho_ranked_status: None,
+            count_circles: Some(160),
+            count_spinners: Some(4),
+            count_sliders: Some(30),
+            bancho_creator_id: None,
+            bancho_creator_name: None,
+        }
+    }
+
+    fn achievement(icon_file: &str, name: &str, description: &str) -> Achievement {
+        Achievement {
+            id: 1,
+            icon_file: icon_file.to_owned(),
+            name: name.to_owned(),
+            description: description.to_owned(),
+            hidden: false,
+            mode: None,
+        }
+    }
+
+    // Encrypts with the padding of the library, which is what the client is compatible with
+    fn encrypt(encryptor: &RijndaelCbc<Pkcs7Padding>, iv: &[u8], payload: &str) -> String {
+        let encrypted = encryptor.encrypt(iv, payload.as_bytes().to_vec()).unwrap();
+        base64_simd::STANDARD.encode_to_string(encrypted)
+    }
+
+    fn form(score_payload: &str) -> ScoreSubmissionForm {
+        let osu_version = "20231111";
+        let key = format!("osu!-scoreburgr---------{osu_version}");
+        let iv: Vec<u8> = (0..32).collect();
+        let encryptor: RijndaelCbc<Pkcs7Padding> = RijndaelCbc::new(key.as_bytes(), 32).unwrap();
+
+        ScoreSubmissionForm {
+            x: "0".to_owned(),
+            ft: "0".to_owned(),
+            score: encrypt(&encryptor, &iv, score_payload),
+            fs: "visual settings".to_owned(),
+            bmk: "a5b99395a42bd55bc5eb1d2411cbdf8b".to_owned(),
+            sbk: None,
+            c1: "uninstall_id|disk_signature".to_owned(),
+            st: "142000".to_owned(),
+            pass: "5f4dcc3b5aa765d61d8327deb882cf99".to_owned(),
+            osuver: osu_version.to_owned(),
+            s: encrypt(&encryptor, &iv, CLIENT_PAYLOAD),
+            i: None,
+            iv: base64_simd::STANDARD.encode_to_string(&iv),
+            replay: Some(Bytes::from_static(b"replay")),
+            token: None,
+        }
+    }
+
+    #[test]
+    fn decrypts_the_score_of_a_submission() {
+        let args = decrypt_score_form(form(SCORE_PAYLOAD)).unwrap();
+
+        assert_eq!(args.score.username, "cmyui");
+        assert!(args.score.is_donor_flag);
+        assert_eq!(args.score.beatmap_md5, "a5b99395a42bd55bc5eb1d2411cbdf8b");
+        assert_eq!(args.score.score_md5, "6fa4a52a3e7e4e0a0f4d8c0a5b9f7e11");
+
+        let stats = &args.score.stats;
+        assert_eq!(stats.accuracy.count_300, 300);
+        assert_eq!(stats.accuracy.count_100, 10);
+        assert_eq!(stats.accuracy.count_50, 5);
+        assert_eq!(stats.accuracy.count_geki, 20);
+        assert_eq!(stats.accuracy.count_katu, 3);
+        assert_eq!(stats.accuracy.count_miss, 1);
+        assert_eq!(stats.score, 1_234_567);
+        assert_eq!(stats.max_combo, 512);
+        assert!(stats.perfect_combo);
+        assert!(stats.passed);
+        assert_eq!(stats.mods, Mods::Hidden | Mods::Doubletime);
+        assert_eq!(stats.mode, Gamemode::Standard);
+        assert_eq!(stats.osu_version, "20231111");
+        assert_eq!(stats.score_flags, ScoreFlags::Clean);
+
+        assert!(!args.quit);
+        assert_eq!(args.score_time, 142_000);
+        assert_eq!(args.unique_ids.uninstall_md5, "uninstall_id");
+        assert_eq!(args.unique_ids.disk_signature_md5, "disk_signature");
+        assert_eq!(args.client_info.uninstall_md5, "uninstall_md5");
+        assert_eq!(args.client_info.disk_signature_md5, "disk_md5");
+    }
+
+    #[test]
+    fn reads_anticheat_flags_from_the_padding_of_the_version() {
+        let payload = format!("{SCORE_PAYLOAD}  ");
+        let args = decrypt_score_form(form(&payload)).unwrap();
+        assert_eq!(args.score.stats.osu_version, "20231111");
+        assert_eq!(args.score.stats.score_flags, ScoreFlags::SpeedHackDetected);
+    }
+
+    #[test]
+    fn rejects_scores_with_missing_fields() {
+        let payload = "a5b99395a42bd55bc5eb1d2411cbdf8b:cmyui:checksum:300:10:5";
+        let result = decrypt_score_form(form(payload));
+        assert!(matches!(result, Err(AppError::MalformedRequest)));
+    }
+
+    #[test]
+    fn rejects_forms_that_were_not_encrypted_for_their_version() {
+        let mut form = form(SCORE_PAYLOAD);
+        form.osuver = "20200101".to_owned();
+        let result = decrypt_score_form(form);
+        assert!(matches!(result, Err(AppError::MalformedRequest)));
+    }
+
+    #[test]
+    fn rejects_forms_without_a_score() {
+        let mut form = form(SCORE_PAYLOAD);
+        form.score = String::new();
+        let result = decrypt_score_form(form);
+        assert!(matches!(result, Err(AppError::MalformedRequest)));
+    }
+
+    #[test]
+    fn pads_like_the_client() {
+        let padding = StrictPkcs7Padding::new(32);
+        let padded = padding.encode(b"osu!".to_vec());
+        assert_eq!(padded.len(), 32);
+        assert_eq!(padded, Pkcs7Padding::new(32).encode(b"osu!".to_vec()));
+        assert_eq!(padding.decode(padded).unwrap(), b"osu!");
+
+        // A full block of padding follows data that already fills its blocks
+        assert_eq!(padding.encode(vec![1; 32]).len(), 64);
+    }
+
+    #[test]
+    fn formats_charts_the_way_the_client_reads_them() {
+        let result = ScoreSubmissionResult::Charts {
+            beatmap: beatmap(),
+            score_id: 1001,
+            beatmap_ranking: Chart {
+                chart_id: "beatmap",
+                chart_url: "https://osu.akatsuki.gg/beatmapsets/1".to_owned(),
+                chart_name: "Beatmap Ranking",
+                entries: vec![
+                    ChartEntry::new_int("rank", None, 1),
+                    ChartEntry::new_float("accuracy", Some(98.123), 99.5),
+                ],
+            },
+            overall_ranking: Chart {
+                chart_id: "overall",
+                chart_url: "https://akatsuki.gg/u/1001".to_owned(),
+                chart_name: "Overall Ranking",
+                entries: vec![ChartEntry::new_int("pp", Some(100), 120)],
+            },
+            achievements: vec![
+                achievement("osu-skill-pass-1", "Rising Star", "Can't go forward without the first steps."),
+                achievement("all-intro-hidden", "Blindsight", "I can see just perfectly"),
+            ],
+        };
+
+        let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
+            |approvedDate:2023-11-14 22:13:20|\n\
+            |chartId:beatmap|chartUrl:https://osu.akatsuki.gg/beatmapsets/1|chartName:Beatmap Ranking\
+            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5|onlineScoreId:1001|\n\
+            |chartId:overall|chartUrl:https://akatsuki.gg/u/1001|chartName:Overall Ranking\
+            |ppBefore:100|ppAfter:120\
+            |achievements-new:osu-skill-pass-1+Rising Star+Can't go forward without the first steps.\
+            /all-intro-hidden+Blindsight+I can see just perfectly";
+        assert_eq!(result.osu_format(), expected);
+    }
+
+    #[test]
+    fn formats_submissions_without_charts_as_ok() {
+        assert_eq!(ScoreSubmissionResult::Ok.osu_format(), "ok");
     }
 }

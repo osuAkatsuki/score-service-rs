@@ -249,7 +249,16 @@ impl Display for Mods {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut mods = vec![];
 
-        let v = self.bits();
+        // Nightcore and Perfect always come with the mod they are a variation of
+        let mut displayed_mods = *self;
+        if displayed_mods.contains(Mods::Nightcore) {
+            displayed_mods.remove(Mods::Doubletime);
+        }
+        if displayed_mods.contains(Mods::Perfect) {
+            displayed_mods.remove(Mods::SuddenDeath);
+        }
+
+        let v = displayed_mods.bits();
         for i in 0..MODS_SHORT.len() {
             let short_str = MODS_SHORT[i];
             if (v & (1 << i)) != 0 {
@@ -261,9 +270,41 @@ impl Display for Mods {
             return Ok(());
         }
 
-        // TODO: adjust logic here a bit for DTNC/SDPF cases
         let mods_joined = mods.join("");
         let mods_format = format!("+{mods_joined}");
         Display::fmt(&mods_format, f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn displays_mods_by_their_acronyms() {
+        assert_eq!((Mods::Hidden | Mods::HardRock).to_string(), "+HDHR");
+        assert_eq!(Mods::None.to_string(), "");
+    }
+
+    #[test]
+    fn displays_variations_without_the_mod_they_are_based_on() {
+        let mods = Mods::Hidden | Mods::Doubletime | Mods::Nightcore;
+        assert_eq!(mods.to_string(), "+HDNC");
+
+        let mods = Mods::SuddenDeath | Mods::Perfect;
+        assert_eq!(mods.to_string(), "+PF");
+    }
+
+    #[test]
+    fn removes_mods_that_do_not_exist_in_a_mode() {
+        let mods = Mods::Relax | Mods::Hidden | Mods::Keys4;
+        assert_eq!(
+            mods.sanitize_for_mode(Gamemode::Mania),
+            Mods::Hidden | Mods::Keys4
+        );
+        assert_eq!(
+            mods.sanitize_for_mode(Gamemode::Standard),
+            Mods::Relax | Mods::Hidden
+        );
     }
 }

@@ -5,6 +5,7 @@ use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_pool::RedisPool;
 use crate::common::state::AppState;
 use axum::extract::FromRequestParts;
+use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
 use sqlx::{MySql, Pool};
 use tokio_util::task::TaskTracker;
@@ -18,6 +19,7 @@ pub struct RequestContext {
     pub achievements: &'static [Achievement],
     pub background_tasks: TaskTracker,
     pub request_ip: IpAddrInfo,
+    pub user_agent: Option<String>,
 }
 
 impl RequestContext {
@@ -36,6 +38,11 @@ impl FromRequestParts<AppState> for RequestContext {
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> ServiceResult<Self> {
         let ip_info = IpAddrInfo::from_request_parts(parts, state).await?;
+        let user_agent = parts
+            .headers
+            .get(USER_AGENT)
+            .and_then(|user_agent| user_agent.to_str().ok())
+            .map(str::to_owned);
         Ok(Self {
             db: state.db.clone(),
             redis: state.redis.clone(),
@@ -44,6 +51,7 @@ impl FromRequestParts<AppState> for RequestContext {
             achievements: state.achievements,
             background_tasks: state.background_tasks.clone(),
             request_ip: ip_info,
+            user_agent,
         })
     }
 }
