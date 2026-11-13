@@ -234,8 +234,7 @@ impl Debug for Mods {
         let mut mods = vec![];
 
         let v = self.bits();
-        for i in 0..MODS_DEBUG.len() {
-            let debug_str = MODS_DEBUG[i];
+        for (i, debug_str) in MODS_DEBUG.into_iter().enumerate() {
             if (v & (1 << i)) != 0 {
                 mods.push(debug_str);
             }
@@ -259,8 +258,7 @@ impl Display for Mods {
         }
 
         let v = displayed_mods.bits();
-        for i in 0..MODS_SHORT.len() {
-            let short_str = MODS_SHORT[i];
+        for (i, short_str) in MODS_SHORT.into_iter().enumerate() {
             if (v & (1 << i)) != 0 {
                 mods.push(short_str);
             }
