@@ -8,10 +8,14 @@ use crate::common::state::AppState;
 use crate::lifecycle;
 use crate::settings::AppSettings;
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tracing::info;
+
+/// Axum only accepts bodies of up to 2 MB unless told otherwise
+const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -21,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/ss/{file_name}", get(osu_web::screenshot::fetch))
         .route("/d/{beatmapset_id}", get(osu_web::direct::download))
         .merge(osu_website::router())
+        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
 }
 
 pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
