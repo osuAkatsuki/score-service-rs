@@ -104,7 +104,6 @@ const MISSING_ANTICHEAT_TOKEN: &str =
 
 /// Lets the staff know that the client of the user leaves out its anticheat token,
 /// with a note about the user and a message in the anticheat logs.
-/// Such a client does so on every score, so the staff is only told the first time.
 pub fn report_missing_anticheat_token(ctx: &RequestContext, user: &User) {
     let task_ctx = ctx.clone();
     let user_id = user.user_id;
