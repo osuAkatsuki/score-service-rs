@@ -9,7 +9,7 @@ fn make_url(endpoint: &str) -> String {
     format!("{}{endpoint}", settings.bancho_service_base_url)
 }
 
-static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| reqwest::Client::new());
+static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(super::http_client);
 
 #[derive(Deserialize)]
 pub struct BaseSuccessData {
