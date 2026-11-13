@@ -77,7 +77,7 @@ pub async fn fetch_leaderboard_view(
     };
 
     let leaderboard_size = user.privileges.is_donor()
-        .then(|| user.leaderboard_size)
+        .then_some(user.leaderboard_size)
         .flatten()
         .unwrap_or_else(|| AppSettings::get().leaderboard_size);
     let leaderboard_scores = scores::fetch_leaderboard_view(
