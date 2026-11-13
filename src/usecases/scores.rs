@@ -25,6 +25,11 @@ pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> ServiceResult<Sco
     }
 }
 
+pub async fn fetch_total_count(ctx: &RequestContext) -> ServiceResult<i64> {
+    let total_count = scores::fetch_total_count(ctx).await?;
+    Ok(total_count)
+}
+
 const CURRENT_LBS_VERSION: i32 = 4;
 pub async fn fetch_leaderboard_view(
     ctx: &RequestContext,

@@ -13,6 +13,7 @@ pub mod scores;
 pub mod screenshot;
 pub mod seasonal_backgrounds;
 
+use crate::api::osu_website;
 use crate::common::state::AppState;
 use axum::Router;
 use axum::routing::{get, post};
@@ -47,4 +48,5 @@ pub fn router() -> Router<AppState> {
         .route("/osu-comment.php", post(post_comment::handler))
         .route("/osu-osz2-getscores.php", get(scores::fetch_leaderboard))
         .route("/osu-submit-modular-selector.php", post(scores::submit))
+        .route("/maps/{file_name}", get(osu_website::redirect))
 }

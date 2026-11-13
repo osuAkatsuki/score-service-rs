@@ -1,6 +1,7 @@
 pub mod context;
 mod health;
 mod osu_web;
+mod osu_website;
 mod v1;
 
 use crate::common::state::AppState;
@@ -15,9 +16,11 @@ use tracing::info;
 pub fn router() -> Router<AppState> {
     Router::new()
         .nest("/api/v1", v1::router())
+        .nest("/public/api/v1", v1::public_router())
         .nest("/web", osu_web::router())
         .route("/ss/{file_name}", get(osu_web::screenshot::fetch))
         .route("/d/{beatmapset_id}", get(osu_web::direct::download))
+        .merge(osu_website::router())
 }
 
 pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
