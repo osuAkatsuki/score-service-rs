@@ -1,6 +1,6 @@
 use crate::api::context::RequestContext;
 use crate::entities::accuracy::Accuracy;
-use crate::entities::mode::ModdedGamemode;
+use crate::entities::mode::{GamemodeMod, ModdedGamemode};
 use crate::entities::mods::Mods;
 use crate::entities::scores::{LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric, ScoreStatus};
 use chrono::Utc;
@@ -236,6 +236,23 @@ pub async fn find_rank(
         .fetch_one(&ctx.db)
         .await?;
     Ok(count + 1)
+}
+
+pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> sqlx::Result<Option<Score>> {
+    let table_name = GamemodeMod::from_score_id(score_id).scores_table();
+    let query = format!(
+        r#"
+            SELECT id, beatmap_md5, userid, score, max_combo, full_combo, mods,
+            `300_count`, `100_count`, `50_count`, katus_count, gekis_count, misses_count,
+            time, play_mode, completed, accuracy, pp, checksum FROM {table_name}
+            WHERE id = ?
+        "#
+    );
+
+    sqlx::query_as(&query)
+        .bind(score_id)
+        .fetch_optional(&ctx.db)
+        .await
 }
 
 pub async fn fetch_user_best(

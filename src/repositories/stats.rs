@@ -112,6 +112,22 @@ pub async fn update(
     Ok(())
 }
 
+pub async fn increment_replays_watched(
+    ctx: &RequestContext,
+    user_id: i64,
+    mode: ModdedGamemode,
+) -> sqlx::Result<()> {
+    const QUERY: &str = r#"
+    UPDATE user_stats SET replays_watched = replays_watched + 1
+    WHERE user_id = ? AND mode = ?"#;
+    sqlx::query(QUERY)
+        .bind(user_id)
+        .bind(mode as i16)
+        .execute(&ctx.db)
+        .await?;
+    Ok(())
+}
+
 /// Tells bancho that the stats it has cached for the user are outdated
 pub async fn publish_update_event(ctx: &RequestContext, user_id: i64) -> anyhow::Result<()> {
     let mut redis = ctx.redis.get().await?;

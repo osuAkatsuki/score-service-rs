@@ -33,6 +33,32 @@ pub enum GamemodeMod {
     Autopilot = 2,
 }
 
+/// Every kind of score is stored in a table of its own, each with its own range of ids:
+/// relax scores come first, followed by vanilla and finally autopilot scores.
+const VANILLA_SCORE_ID_OFFSET: i64 = 500_000_000;
+const AUTOPILOT_SCORE_ID_OFFSET: i64 = 6_148_914_691_236_517_204;
+
+impl GamemodeMod {
+    /// The id of a score is enough to tell which kind of score it is
+    pub fn from_score_id(score_id: i64) -> GamemodeMod {
+        if score_id < VANILLA_SCORE_ID_OFFSET {
+            GamemodeMod::Relax
+        } else if score_id < AUTOPILOT_SCORE_ID_OFFSET {
+            GamemodeMod::Vanilla
+        } else {
+            GamemodeMod::Autopilot
+        }
+    }
+
+    pub fn scores_table(&self) -> &'static str {
+        match self {
+            GamemodeMod::Vanilla => "scores",
+            GamemodeMod::Relax => "scores_relax",
+            GamemodeMod::Autopilot => "scores_ap",
+        }
+    }
+}
+
 impl ModdedGamemode {
     pub const ALL: [ModdedGamemode; 8] = [
         ModdedGamemode::Standard,
@@ -97,16 +123,7 @@ impl ModdedGamemode {
     }
 
     pub fn scores_table(&self) -> &'static str {
-        match self {
-            ModdedGamemode::Standard
-            | ModdedGamemode::Taiko
-            | ModdedGamemode::Catch
-            | ModdedGamemode::Mania => "scores",
-            ModdedGamemode::StandardRelax
-            | ModdedGamemode::TaikoRelax
-            | ModdedGamemode::CatchRelax => "scores_relax",
-            ModdedGamemode::StandardAutopilot => "scores_ap",
-        }
+        self.mode_mod().scores_table()
     }
 
     pub fn redis_board(&self) -> &'static str {
@@ -120,6 +137,40 @@ impl ModdedGamemode {
             ModdedGamemode::CatchRelax => "relaxboard:ctb",
             ModdedGamemode::StandardAutopilot => "autoboard:std",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tells_the_kind_of_a_score_by_its_id() {
+        let kinds = [
+            (1, GamemodeMod::Relax),
+            (499_999_999, GamemodeMod::Relax),
+            (500_000_000, GamemodeMod::Vanilla),
+            (6_148_914_691_236_517_203, GamemodeMod::Vanilla),
+            (6_148_914_691_236_517_204, GamemodeMod::Autopilot),
+        ];
+        for (score_id, expected_kind) in kinds {
+            assert_eq!(GamemodeMod::from_score_id(score_id), expected_kind);
+        }
+    }
+
+    #[test]
+    fn mods_decide_where_a_score_is_stored() {
+        let mode = ModdedGamemode::from_mode_and_mods(Gamemode::Taiko, Mods::Relax | Mods::Hidden);
+        assert_eq!(mode, ModdedGamemode::TaikoRelax);
+        assert_eq!(mode.scores_table(), "scores_relax");
+
+        // Mods that do not exist in a mode do not change it
+        let mode = ModdedGamemode::from_mode_and_mods(Gamemode::Mania, Mods::Relax);
+        assert_eq!(mode, ModdedGamemode::Mania);
+        assert_eq!(mode.scores_table(), "scores");
+
+        let mode = ModdedGamemode::from_mode_and_mods(Gamemode::Standard, Mods::Autopilot);
+        assert_eq!(mode.scores_table(), "scores_ap");
     }
 }
 

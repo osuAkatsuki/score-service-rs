@@ -24,6 +24,15 @@ pub async fn update(
     Ok(())
 }
 
+pub async fn increment_replays_watched(
+    ctx: &RequestContext,
+    user_id: i64,
+    mode: ModdedGamemode,
+) -> ServiceResult<()> {
+    stats::increment_replays_watched(ctx, user_id, mode).await?;
+    Ok(())
+}
+
 pub async fn fetch_global_rank(
     ctx: &RequestContext,
     user_id: i64,
