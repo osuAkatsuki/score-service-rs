@@ -30,6 +30,7 @@ pub struct AppSettings {
     pub aws_bucket_name: Option<String>,
 
     pub app_ci_key: String,
+    pub bancho_service_base_url: String,
     pub beatmaps_service_base_url: String,
     pub performance_service_base_url: String,
 
@@ -68,6 +69,7 @@ impl AppSettings {
         let aws_bucket_name = env::var("AWS_BUCKET_NAME").ok();
 
         let app_ci_key = env::var("APP_CI_KEY")?;
+        let bancho_service_base_url = env::var("BANCHO_SERVICE_BASE_URL")?;
         let beatmaps_service_base_url = env::var("BEATMAPS_SERVICE_BASE_URL")?;
         let performance_service_base_url = env::var("PERFORMANCE_SERVICE_BASE_URL")?;
         let frontend_base_url = env::var("FRONTEND_URL")?;
@@ -99,6 +101,7 @@ impl AppSettings {
             aws_bucket_name,
 
             app_ci_key,
+            bancho_service_base_url,
             beatmaps_service_base_url,
             performance_service_base_url,
             frontend_base_url,
