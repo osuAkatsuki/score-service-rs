@@ -1,27 +1,27 @@
 use crate::api::context::RequestContext;
-use crate::entities::accuracy::Accuracy;
 use crate::entities::mode::{GamemodeMod, ModdedGamemode};
-use crate::entities::mods::Mods;
-use crate::entities::scores::{LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric, ScoreStatus};
+use crate::entities::scores::{
+    CreateScoreArgs, LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric,
+};
 use chrono::Utc;
 use sqlx::Arguments;
 use sqlx::mysql::MySqlArguments;
 use crate::settings::AppSettings;
 
-pub async fn create(
-    ctx: &RequestContext,
-    user_id: i64,
-    beatmap_md5: &str,
-    mode: ModdedGamemode,
-    score: i32,
-    accuracy: Accuracy,
-    max_combo: u16,
-    perfect_combo: bool,
-    mods: Mods,
-    performance: f32,
-    score_md5: &str,
-    status: ScoreStatus,
-) -> sqlx::Result<Score> {
+pub async fn create(ctx: &RequestContext, args: CreateScoreArgs<'_>) -> sqlx::Result<Score> {
+    let CreateScoreArgs {
+        user_id,
+        beatmap_md5,
+        mode,
+        score,
+        accuracy,
+        max_combo,
+        perfect_combo,
+        mods,
+        performance,
+        score_md5,
+        status,
+    } = args;
     let query = format!(
         r#"INSERT INTO {} (
         beatmap_md5, userid, score, max_combo, full_combo, mods,

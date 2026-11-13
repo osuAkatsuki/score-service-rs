@@ -7,7 +7,9 @@ use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
 use crate::entities::mods::Mods;
-use crate::entities::scores::{LeaderboardFilter, Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent};
+use crate::entities::scores::{
+    CreateScoreArgs, LeaderboardFilter, Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent,
+};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
 use crate::models::osu::score_submission::{
@@ -313,17 +315,19 @@ pub async fn submit(
         };
         scores::create(
             ctx,
-            user.user_id,
-            &beatmap.beatmap_md5,
-            modded_gamemode,
-            args.score.stats.score,
-            args.score.stats.accuracy,
-            args.score.stats.max_combo,
-            args.score.stats.perfect_combo,
-            sanitized_mods,
-            0.0,
-            &args.score.score_md5,
-            status,
+            CreateScoreArgs {
+                user_id: user.user_id,
+                beatmap_md5: &beatmap.beatmap_md5,
+                mode: modded_gamemode,
+                score: args.score.stats.score,
+                accuracy: args.score.stats.accuracy,
+                max_combo: args.score.stats.max_combo,
+                perfect_combo: args.score.stats.perfect_combo,
+                mods: sanitized_mods,
+                performance: 0.0,
+                score_md5: &args.score.score_md5,
+                status,
+            },
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -350,17 +354,19 @@ pub async fn submit(
     let Ok(performance) = performance else {
         scores::create(
             ctx,
-            user.user_id,
-            &beatmap.beatmap_md5,
-            modded_gamemode,
-            args.score.stats.score,
-            args.score.stats.accuracy,
-            args.score.stats.max_combo,
-            args.score.stats.perfect_combo,
-            sanitized_mods,
-            0.0,
-            &args.score.score_md5,
-            ScoreStatus::Completed,
+            CreateScoreArgs {
+                user_id: user.user_id,
+                beatmap_md5: &beatmap.beatmap_md5,
+                mode: modded_gamemode,
+                score: args.score.stats.score,
+                accuracy: args.score.stats.accuracy,
+                max_combo: args.score.stats.max_combo,
+                perfect_combo: args.score.stats.perfect_combo,
+                mods: sanitized_mods,
+                performance: 0.0,
+                score_md5: &args.score.score_md5,
+                status: ScoreStatus::Completed,
+            },
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -405,17 +411,19 @@ pub async fn submit(
 
     let score = scores::create(
         ctx,
-        user.user_id,
-        &beatmap.beatmap_md5,
-        modded_gamemode,
-        args.score.stats.score,
-        args.score.stats.accuracy,
-        args.score.stats.max_combo,
-        args.score.stats.perfect_combo,
-        sanitized_mods,
-        performance.pp,
-        &args.score.score_md5,
-        status,
+        CreateScoreArgs {
+            user_id: user.user_id,
+            beatmap_md5: &beatmap.beatmap_md5,
+            mode: modded_gamemode,
+            score: args.score.stats.score,
+            accuracy: args.score.stats.accuracy,
+            max_combo: args.score.stats.max_combo,
+            perfect_combo: args.score.stats.perfect_combo,
+            mods: sanitized_mods,
+            performance: performance.pp,
+            score_md5: &args.score.score_md5,
+            status,
+        },
     )
     .await?;
     info!(

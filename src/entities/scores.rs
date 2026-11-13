@@ -52,6 +52,20 @@ pub struct Score {
     pub created_at: DateTime<Utc>,
 }
 
+pub struct CreateScoreArgs<'a> {
+    pub user_id: i64,
+    pub beatmap_md5: &'a str,
+    pub mode: ModdedGamemode,
+    pub score: i32,
+    pub accuracy: Accuracy,
+    pub max_combo: u16,
+    pub perfect_combo: bool,
+    pub mods: Mods,
+    pub performance: f32,
+    pub score_md5: &'a str,
+    pub status: ScoreStatus,
+}
+
 #[derive(Clone)]
 pub struct LeaderboardScore {
     /// The position of this score on the leaderboard it was fetched from
