@@ -1,3 +1,4 @@
+pub mod beatmap_ratings;
 pub mod beatmaps;
 pub mod charts;
 pub mod direct;

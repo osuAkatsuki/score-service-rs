@@ -23,6 +23,15 @@ pub async fn increment_playcount(
     Ok(())
 }
 
+pub async fn update_rating(
+    ctx: &RequestContext,
+    beatmap_md5: &str,
+    rating: f64,
+) -> ServiceResult<()> {
+    beatmaps::update_rating(ctx, beatmap_md5, rating).await?;
+    Ok(())
+}
+
 pub async fn file_name_exists(ctx: &RequestContext, file_name: &str) -> ServiceResult<bool> {
     let exists = beatmaps::file_name_exists(ctx, file_name).await?;
     Ok(exists)
