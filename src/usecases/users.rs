@@ -79,7 +79,8 @@ pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> 
     }
 
     // The note only documents the restriction, which has to be carried out with or without it
-    if let Err(e) = users::add_restriction_note(ctx, user_id, reason).await {
+    let note = format!("score-service autorestrict: {reason}");
+    if let Err(e) = users::add_note(ctx, user_id, &note).await {
         error!(user_id, reason, "Failed to note down the reason of the restriction: {e}");
     }
     users::create_restriction_log(ctx, user_id).await?;
@@ -95,6 +96,43 @@ pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> 
         _ = discord::send_ac_red_embed("User restricted", &task_reason, Some(&profile_link)).await;
     });
     Ok(())
+}
+
+/// What the staff gets to read about a client that submits scores without its anticheat token
+const MISSING_ANTICHEAT_TOKEN: &str =
+    "Submitted score without anticheat token (anticheat disabled, or a custom or outdated client).";
+
+/// Whether the staff has been told this about the user before, going by the notes kept about them
+fn is_noted(notes: Option<&str>, note: &str) -> bool {
+    notes.is_some_and(|notes| notes.contains(note))
+}
+
+/// Lets the staff know that the client of the user leaves out its anticheat token,
+/// with a note about the user and a message in the anticheat logs.
+/// Such a client does so on every score, so the staff is only told the first time.
+pub fn report_missing_anticheat_token(ctx: &RequestContext, user: &User) {
+    if is_noted(user.notes.as_deref(), MISSING_ANTICHEAT_TOKEN) {
+        return;
+    }
+
+    let task_ctx = ctx.clone();
+    let user_id = user.user_id;
+    ctx.spawn(async move {
+        // Without the note, nothing would keep the message from being sent for every score
+        let note = format!("score-service: {MISSING_ANTICHEAT_TOKEN}");
+        if let Err(e) = users::add_note(&task_ctx, user_id, &note).await {
+            error!(user_id, "Failed to note down the missing anticheat token: {e}");
+            return;
+        }
+
+        let profile_link = website::get_profile_link(user_id);
+        _ = discord::send_ac_purple_embed(
+            "Anticheat token missing",
+            MISSING_ANTICHEAT_TOKEN,
+            Some(&profile_link),
+        )
+        .await;
+    });
 }
 
 pub async fn fetch_user_friends(
@@ -161,6 +199,23 @@ mod tests {
         assert_eq!(make_safe_username("Cookiezi"), "cookiezi");
         assert_eq!(make_safe_username("Lil Darkie "), "lil_darkie");
         assert_eq!(make_safe_username("[ Shigetora ]"), "[_shigetora_]");
+    }
+
+    #[test]
+    fn finds_what_the_staff_has_been_told_about_a_user_in_their_notes() {
+        assert!(!is_noted(None, MISSING_ANTICHEAT_TOKEN));
+
+        let notes = "\n[2026-11-12 18:30:00 UTC] score-service autorestrict: Submitted score without replay.";
+        assert!(!is_noted(Some(notes), MISSING_ANTICHEAT_TOKEN));
+
+        let notes = format!("{notes}\n[2026-11-13 09:00:00 UTC] score-service: {MISSING_ANTICHEAT_TOKEN}");
+        assert!(is_noted(Some(&notes), MISSING_ANTICHEAT_TOKEN));
+    }
+
+    #[test]
+    fn the_note_about_a_missing_anticheat_token_is_stored_as_written() {
+        // Latin1 replaces what it can not store, after which the note would not be found again
+        assert!(MISSING_ANTICHEAT_TOKEN.is_ascii());
     }
 
     #[tokio::test]

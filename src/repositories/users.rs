@@ -61,17 +61,13 @@ fn to_latin1(text: &str) -> String {
         .collect()
 }
 
-/// Adds the reason of a restriction to the notes the staff keeps about the user
-pub async fn add_restriction_note(
-    ctx: &RequestContext,
-    user_id: i64,
-    reason: &str,
-) -> sqlx::Result<()> {
+/// Adds a line to the notes the staff keeps about the user
+pub async fn add_note(ctx: &RequestContext, user_id: i64, note: &str) -> sqlx::Result<()> {
     const QUERY: &str = "UPDATE users SET notes = CONCAT(IFNULL(notes, ''), ?) WHERE id = ?";
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S");
-    let note = format!("\n[{now} UTC] score-service autorestrict: {reason}");
+    let line = format!("\n[{now} UTC] {note}");
     sqlx::query(QUERY)
-        .bind(to_latin1(&note))
+        .bind(to_latin1(&line))
         .bind(user_id)
         .execute(&ctx.db)
         .await?;

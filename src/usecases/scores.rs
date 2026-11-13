@@ -137,7 +137,7 @@ pub async fn submit(
     let user = users::fetch_one_and_auth(ctx, &args.score.username, &args.password_md5).await?;
     if args.anticheat_token.is_none() {
         warn!(user_id = user.user_id, "Anticheat Token is missing");
-        return Err(AppError::ScoresAnticheatTokenMissing);
+        users::report_missing_anticheat_token(ctx, &user);
     }
 
     if ctx.user_agent.as_deref() != Some("osu!") {
