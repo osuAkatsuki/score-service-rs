@@ -141,6 +141,30 @@ impl ModdedGamemode {
     }
 }
 
+impl From<u8> for Gamemode {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Gamemode::Standard,
+            1 => Gamemode::Taiko,
+            2 => Gamemode::Catch,
+            3 => Gamemode::Mania,
+            _ => Gamemode::Standard,
+        }
+    }
+}
+
+impl From<i8> for Gamemode {
+    fn from(value: i8) -> Self {
+        match value {
+            0 => Gamemode::Standard,
+            1 => Gamemode::Taiko,
+            2 => Gamemode::Catch,
+            3 => Gamemode::Mania,
+            _ => Gamemode::Standard,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,29 +196,5 @@ mod tests {
 
         let mode = ModdedGamemode::from_mode_and_mods(Gamemode::Standard, Mods::Autopilot);
         assert_eq!(mode.scores_table(), "scores_ap");
-    }
-}
-
-impl From<u8> for Gamemode {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Gamemode::Standard,
-            1 => Gamemode::Taiko,
-            2 => Gamemode::Catch,
-            3 => Gamemode::Mania,
-            _ => Gamemode::Standard,
-        }
-    }
-}
-
-impl From<i8> for Gamemode {
-    fn from(value: i8) -> Self {
-        match value {
-            0 => Gamemode::Standard,
-            1 => Gamemode::Taiko,
-            2 => Gamemode::Catch,
-            3 => Gamemode::Mania,
-            _ => Gamemode::Standard,
-        }
     }
 }
