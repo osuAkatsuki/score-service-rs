@@ -15,7 +15,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 
 /// Axum only accepts bodies of up to 2 MB unless told otherwise
-const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
+const MAX_BODY_SIZE: usize = 16 * 1024 * 1024;
 
 pub fn router() -> Router<AppState> {
     Router::new()

@@ -1,3 +1,4 @@
+pub mod amqp;
 pub mod axum_ip;
 pub mod env;
 pub mod error;

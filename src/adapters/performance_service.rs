@@ -9,7 +9,7 @@ fn make_url(endpoint: &str) -> String {
     format!("{}{endpoint}", settings.performance_service_base_url)
 }
 
-static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| reqwest::Client::new());
+static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(super::http_client);
 
 #[derive(Serialize)]
 pub struct PerformanceRequest<'a> {

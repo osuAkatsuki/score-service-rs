@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use crate::achievements::Achievement;
+use crate::common::amqp::AmqpPublisher;
 use crate::common::axum_ip::IpAddrInfo;
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_pool::RedisPool;
@@ -14,7 +15,7 @@ use tokio_util::task::TaskTracker;
 pub struct RequestContext {
     pub db: Pool<MySql>,
     pub redis: RedisPool,
-    pub amqp_channel: Option<Arc<lapin::Channel>>,
+    pub amqp_publisher: Option<Arc<AmqpPublisher>>,
     pub s3_client: Option<aws_sdk_s3::Client>,
     pub achievements: &'static [Achievement],
     pub background_tasks: TaskTracker,
@@ -46,7 +47,7 @@ impl FromRequestParts<AppState> for RequestContext {
         Ok(Self {
             db: state.db.clone(),
             redis: state.redis.clone(),
-            amqp_channel: state.amqp_channel.clone(),
+            amqp_publisher: state.amqp_publisher.clone(),
             s3_client: state.s3_client.clone(),
             achievements: state.achievements,
             background_tasks: state.background_tasks.clone(),
