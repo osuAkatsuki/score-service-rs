@@ -37,26 +37,45 @@ pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> sqlx:
 
 /// Restricts the user unless they already are.
 /// Returns whether the user has been restricted by this call.
-pub async fn restrict_with_note(
-    ctx: &RequestContext,
-    user_id: i64,
-    note: &str,
-) -> sqlx::Result<bool> {
+pub async fn restrict(ctx: &RequestContext, user_id: i64) -> sqlx::Result<bool> {
     const QUERY: &str = r#"UPDATE users
-    SET privileges = (privileges & ~(?)), ban_datetime = UNIX_TIMESTAMP(),
-    notes = CONCAT(IFNULL(notes, ''), ?)
+    SET privileges = (privileges & ~(?)), ban_datetime = UNIX_TIMESTAMP()
     WHERE id = ? AND (privileges & ?) != 0"#;
     let privileges = Privileges::PubliclyVisible;
-    let now = Utc::now().format("%Y-%m-%d %H:%M:%S");
-    let notes_adt = format!("\n[{now} UTC] score-service autorestrict: {note}");
     let result = sqlx::query(QUERY)
         .bind(privileges.bits())
-        .bind(notes_adt)
         .bind(user_id)
         .bind(privileges.bits())
         .execute(&ctx.db)
         .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// The notes of a user are stored as latin1, which refuses text it has no characters for
+fn to_latin1(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '\0'..='\u{7f}' | '\u{a0}'..='\u{ff}' => c,
+            _ => '?',
+        })
+        .collect()
+}
+
+/// Adds the reason of a restriction to the notes the staff keeps about the user
+pub async fn add_restriction_note(
+    ctx: &RequestContext,
+    user_id: i64,
+    reason: &str,
+) -> sqlx::Result<()> {
+    const QUERY: &str = "UPDATE users SET notes = CONCAT(IFNULL(notes, ''), ?) WHERE id = ?";
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S");
+    let note = format!("\n[{now} UTC] score-service autorestrict: {reason}");
+    sqlx::query(QUERY)
+        .bind(to_latin1(&note))
+        .bind(user_id)
+        .execute(&ctx.db)
+        .await?;
+    Ok(())
 }
 
 /// Adds the restriction to the audit log of the admin panel, attributed to the bot
@@ -190,4 +209,21 @@ pub async fn handle_pending_username_change(
         .publish(API_USERNAME_CHANGE_KEY, user_id.to_string())
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_the_text_latin1_can_store() {
+        assert_eq!(to_latin1("Motörhead - Ace of Spades [Übung]"), "Motörhead - Ace of Spades [Übung]");
+    }
+
+    #[test]
+    fn replaces_the_characters_latin1_can_not_store() {
+        assert_eq!(to_latin1("xi - FREEDOM DiVE↓ [FOUR DIMENSIONS]"), "xi - FREEDOM DiVE? [FOUR DIMENSIONS]");
+        assert_eq!(to_latin1("ぼくらの16bit戦争"), "????16bit??");
+        assert_eq!(to_latin1("\u{80}\u{9f}"), "??");
+    }
 }

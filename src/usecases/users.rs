@@ -6,7 +6,7 @@ use crate::entities::mode::ModdedGamemode;
 use crate::models::users::User;
 use crate::repositories::{stats, users};
 use std::collections::HashSet;
-use tracing::info;
+use tracing::{error, info};
 
 /// Usernames are unique regardless of their casing and of spaces being written as underscores
 fn make_safe_username(username: &str) -> String {
@@ -73,11 +73,15 @@ pub async fn update_latest_activity(ctx: &RequestContext, user_id: i64) -> Servi
 
 pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> ServiceResult<()> {
     // There is nothing left to do for users that are restricted already
-    let newly_restricted = users::restrict_with_note(ctx, user_id, reason).await?;
+    let newly_restricted = users::restrict(ctx, user_id).await?;
     if !newly_restricted {
         return Ok(());
     }
 
+    // The note only documents the restriction, which has to be carried out with or without it
+    if let Err(e) = users::add_restriction_note(ctx, user_id, reason).await {
+        error!(user_id, reason, "Failed to note down the reason of the restriction: {e}");
+    }
     users::create_restriction_log(ctx, user_id).await?;
     users::publish_ban_event(ctx, user_id).await?;
 
