@@ -1,7 +1,7 @@
 use crate::entities::scores::ScoreGrade;
 use chrono::Utc;
 
-#[derive(sqlx::FromRow, Copy, Clone)]
+#[derive(sqlx::FromRow, Copy, Clone, Default)]
 pub struct Stats {
     pub user_id: i64,
     pub mode: i16,
@@ -126,16 +126,17 @@ impl UpdateStats {
             }
         }
 
+        // Not every score has been counted towards its grade, so there may be nothing to take away
         if let Some(decr_grade) = self.decrement_grade {
             match decr_grade {
-                ScoreGrade::XH => new_stats.xh_count -= 1,
-                ScoreGrade::X => new_stats.x_count -= 1,
-                ScoreGrade::SH => new_stats.sh_count -= 1,
-                ScoreGrade::S => new_stats.s_count -= 1,
-                ScoreGrade::A => new_stats.a_count -= 1,
-                ScoreGrade::B => new_stats.b_count -= 1,
-                ScoreGrade::C => new_stats.c_count -= 1,
-                ScoreGrade::D => new_stats.d_count -= 1,
+                ScoreGrade::XH => new_stats.xh_count = new_stats.xh_count.saturating_sub(1),
+                ScoreGrade::X => new_stats.x_count = new_stats.x_count.saturating_sub(1),
+                ScoreGrade::SH => new_stats.sh_count = new_stats.sh_count.saturating_sub(1),
+                ScoreGrade::S => new_stats.s_count = new_stats.s_count.saturating_sub(1),
+                ScoreGrade::A => new_stats.a_count = new_stats.a_count.saturating_sub(1),
+                ScoreGrade::B => new_stats.b_count = new_stats.b_count.saturating_sub(1),
+                ScoreGrade::C => new_stats.c_count = new_stats.c_count.saturating_sub(1),
+                ScoreGrade::D => new_stats.d_count = new_stats.d_count.saturating_sub(1),
             }
         }
 
@@ -158,5 +159,37 @@ impl UpdateStats {
         }
 
         new_stats
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn moves_an_improved_score_from_its_old_grade_to_the_new_one() {
+        let stats = Stats {
+            a_count: 3,
+            s_count: 1,
+            ..Default::default()
+        };
+        let mut update = UpdateStats::default();
+        update.decrement_grade(ScoreGrade::A);
+        update.increment_grade(ScoreGrade::S);
+
+        let stats = update.apply(&stats);
+        assert_eq!(stats.a_count, 2);
+        assert_eq!(stats.s_count, 2);
+    }
+
+    #[test]
+    fn grade_counts_do_not_drop_below_zero() {
+        let mut update = UpdateStats::default();
+        update.decrement_grade(ScoreGrade::A);
+        update.increment_grade(ScoreGrade::S);
+
+        let stats = update.apply(&Stats::default());
+        assert_eq!(stats.a_count, 0);
+        assert_eq!(stats.s_count, 1);
     }
 }
