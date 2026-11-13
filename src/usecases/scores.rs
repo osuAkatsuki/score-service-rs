@@ -282,12 +282,14 @@ pub async fn submit(
         _ = associate_multiplayer_score(
             &task_ctx,
             user.user_id,
-            args.score.stats.mode,
-            args.score.stats.accuracy,
-            args.score.stats.score,
-            args.score.stats.max_combo as _,
-            sanitized_mods,
-            args.score.stats.passed,
+            MultiplayerScore {
+                mode: args.score.stats.mode,
+                accuracy: args.score.stats.accuracy,
+                score: args.score.stats.score,
+                max_combo: args.score.stats.max_combo as _,
+                mods: sanitized_mods,
+                passed: args.score.stats.passed,
+            },
         )
         .await;
     });
@@ -605,15 +607,20 @@ pub async fn submit(
     })))
 }
 
-async fn associate_multiplayer_score(
-    ctx: &RequestContext,
-    user_id: i64,
+/// The part of a submitted score that is stored for the multiplayer match it was set in
+struct MultiplayerScore {
     mode: Gamemode,
     accuracy: Accuracy,
     score: i32,
     max_combo: i32,
     mods: Mods,
     passed: bool,
+}
+
+async fn associate_multiplayer_score(
+    ctx: &RequestContext,
+    user_id: i64,
+    score: MultiplayerScore,
 ) -> ServiceResult<()> {
     let Some(user_match) = bancho_service::fetch_player_match_details(user_id).await? else {
         return Ok(());
@@ -626,12 +633,12 @@ async fn associate_multiplayer_score(
             team: user_match.team as _,
             game_id: user_match.game_id as _,
             match_id: user_match.match_id as _,
-            mode,
-            mods,
-            score,
-            passed,
-            accuracy,
-            max_combo,
+            mode: score.mode,
+            mods: score.mods,
+            score: score.score,
+            passed: score.passed,
+            accuracy: score.accuracy,
+            max_combo: score.max_combo,
         },
     )
     .await?;
