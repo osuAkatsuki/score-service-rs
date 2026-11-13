@@ -14,7 +14,7 @@ fi
 if [[ $PULL_SECRETS_FROM_VAULT -eq 1 ]]; then
   echo "Fetching secrets from vault"
   # The service loads the .env file by itself once it starts
-  akatsuki vault get score-service "$APP_ENV" -o .env
+  akatsuki vault get score-service-rs "$APP_ENV" -o .env
   echo "Fetched secrets from vault"
 fi
 

@@ -32,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/osuakatsuki/score-service
+          images: ghcr.io/osuakatsuki/score-service-rs
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
@@ -41,8 +41,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/osuakatsuki/score-service:latest
-            ghcr.io/osuakatsuki/score-service:${{ github.sha }}
+            ghcr.io/osuakatsuki/score-service-rs:latest
+            ghcr.io/osuakatsuki/score-service-rs:${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Deploy to production
@@ -53,5 +53,5 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /opt/akatsuki
-            docker compose pull score-service
-            docker compose up -d score-service
+            docker compose pull score-service-rs
+            docker compose up -d score-service-rs
