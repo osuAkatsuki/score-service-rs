@@ -102,19 +102,10 @@ pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> 
 const MISSING_ANTICHEAT_TOKEN: &str =
     "Submitted score without anticheat token (anticheat disabled, or a custom or outdated client).";
 
-/// Whether the staff has been told this about the user before, going by the notes kept about them
-fn is_noted(notes: Option<&str>, note: &str) -> bool {
-    notes.is_some_and(|notes| notes.contains(note))
-}
-
 /// Lets the staff know that the client of the user leaves out its anticheat token,
 /// with a note about the user and a message in the anticheat logs.
 /// Such a client does so on every score, so the staff is only told the first time.
 pub fn report_missing_anticheat_token(ctx: &RequestContext, user: &User) {
-    if is_noted(user.notes.as_deref(), MISSING_ANTICHEAT_TOKEN) {
-        return;
-    }
-
     let task_ctx = ctx.clone();
     let user_id = user.user_id;
     ctx.spawn(async move {
@@ -199,17 +190,6 @@ mod tests {
         assert_eq!(make_safe_username("Cookiezi"), "cookiezi");
         assert_eq!(make_safe_username("Lil Darkie "), "lil_darkie");
         assert_eq!(make_safe_username("[ Shigetora ]"), "[_shigetora_]");
-    }
-
-    #[test]
-    fn finds_what_the_staff_has_been_told_about_a_user_in_their_notes() {
-        assert!(!is_noted(None, MISSING_ANTICHEAT_TOKEN));
-
-        let notes = "\n[2026-11-12 18:30:00 UTC] score-service autorestrict: Submitted score without replay.";
-        assert!(!is_noted(Some(notes), MISSING_ANTICHEAT_TOKEN));
-
-        let notes = format!("{notes}\n[2026-11-13 09:00:00 UTC] score-service: {MISSING_ANTICHEAT_TOKEN}");
-        assert!(is_noted(Some(&notes), MISSING_ANTICHEAT_TOKEN));
     }
 
     #[test]
