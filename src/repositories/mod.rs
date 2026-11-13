@@ -1,5 +1,6 @@
 pub mod achievements;
 pub mod beatmaps;
+pub mod favourites;
 pub mod first_places;
 pub mod performance_caps;
 pub mod scores;
