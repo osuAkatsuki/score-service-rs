@@ -25,7 +25,7 @@ pub async fn fetch_leaderboard_view(
     let user = users::fetch_one_and_auth(ctx, &args.username, &args.password_md5).await?;
     if args.leaderboard_version != CURRENT_LBS_VERSION {
         let task_ctx = ctx.clone();
-        tokio::spawn(async move {
+        ctx.spawn(async move {
             _ = users::restrict_user(&task_ctx, user.user_id, "osu! stable leaderboard version mismatch.").await;
         });
     }
@@ -206,7 +206,7 @@ pub async fn submit(
     }
 
     let task_ctx = ctx.clone();
-    tokio::spawn(async move {
+    ctx.spawn(async move {
         _ = users::handle_pending_username_change(&task_ctx, user.user_id).await;
     });
     let beatmap = beatmaps::fetch_by_md5(&args.beatmap_md5).await?;
@@ -234,7 +234,7 @@ pub async fn submit(
 
     let task_ctx = ctx.clone();
     let task_bm_md5 = beatmap.beatmap_md5.clone();
-    tokio::spawn(async move {
+    ctx.spawn(async move {
         _ = users::update_latest_activity(&task_ctx, user.user_id).await;
         _ = users::increment_beatmap_playcount(
             &task_ctx,
@@ -398,7 +398,7 @@ pub async fn submit(
         relax: modded_gamemode.mode_mod() as u8,
     };
     let event_payload = serde_json::to_string(&event);
-    tokio::spawn(async move {
+    ctx.spawn(async move {
         _ = replays::save_replay(&task_ctx, score.score_id, args.replay_data.unwrap()).await;
         _ = scores::publish_score_event(&task_ctx, event_payload).await;
     });
@@ -457,7 +457,7 @@ pub async fn submit(
         if score_rank == 1 {
             let task_ctx = ctx.clone();
             let task_bm_md5 = beatmap.beatmap_md5.clone();
-            tokio::spawn(async move {
+            ctx.spawn(async move {
                 _ = first_places::handle_first_place(
                     &task_ctx,
                     &task_bm_md5,
@@ -472,7 +472,7 @@ pub async fn submit(
 
     let new_stats = update_stats.apply(&old_stats);
     let task_ctx = ctx.clone();
-    tokio::spawn(async move {
+    ctx.spawn(async move {
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
     });
 
@@ -592,7 +592,7 @@ async fn unlock_achievements(
         .iter()
         .map(|achievement| achievement.id)
         .collect();
-    tokio::spawn(async move {
+    ctx.spawn(async move {
         for new_achievement in new_achievement_ids {
             _ = users::unlock_achievement(&task_ctx, new_achievement, user_id, mode).await;
         }

@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
 
 pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
     let state = lifecycle::initialize_state(&settings).await?;
+    let background_tasks = state.background_tasks.clone();
     let addr = SocketAddr::from((settings.app_host, settings.app_port));
     info!("Listening on {addr}");
     let listener = TcpListener::bind(addr).await?;
@@ -31,6 +32,9 @@ pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(lifecycle::shutdown_signal())
     .await?;
+
+    lifecycle::finish_background_tasks(&background_tasks).await;
     Ok(())
 }
