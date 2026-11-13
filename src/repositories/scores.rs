@@ -252,7 +252,7 @@ pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> sqlx::Result<Opti
         r#"
             SELECT id, beatmap_md5, userid, score, max_combo, full_combo, mods,
             `300_count`, `100_count`, `50_count`, katus_count, gekis_count, misses_count,
-            time, play_mode, completed, accuracy, pp, checksum FROM {table_name}
+            time, play_mode, completed, pp, checksum FROM {table_name}
             WHERE id = ?
         "#
     );
@@ -274,7 +274,7 @@ pub async fn fetch_user_best(
         r#"
             SELECT id, beatmap_md5, userid, score, max_combo, full_combo, mods,
             300_count, 100_count, 50_count, katus_count, gekis_count, misses_count,
-            time, play_mode, completed, accuracy, pp, checksum FROM {table_name}
+            time, play_mode, completed, pp, checksum FROM {table_name}
             WHERE userid = ?
             AND beatmap_md5 = ?
             AND play_mode = ?
@@ -302,7 +302,7 @@ pub async fn fetch_user_top_plays(
         r#"
             SELECT s.id, s.beatmap_md5, s.userid, s.score, s.max_combo, s.full_combo, s.mods,
             300_count, s.100_count, s.50_count, s.katus_count, s.gekis_count, s.misses_count,
-            time, s.play_mode, s.completed, s.accuracy, s.pp, s.checksum
+            time, s.play_mode, s.completed, s.pp, s.checksum
             FROM {table_name} s
             JOIN beatmaps b USING(beatmap_md5)
             WHERE s.completed = 3

@@ -291,7 +291,6 @@ struct RawScore {
     pub time: i32,
     pub play_mode: i8,
     pub completed: i8,
-    pub accuracy: f32,
     pub pp: f32,
     pub checksum: Option<String>,
 }
