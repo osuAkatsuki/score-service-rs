@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.127.0"
 axum = { version = "0.8.8", features = ["multipart"] }
 base64-simd = "0.8.0"

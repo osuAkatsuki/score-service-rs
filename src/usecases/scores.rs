@@ -3,10 +3,9 @@ use crate::adapters::performance_service::PerformanceRequest;
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
 use crate::entities::mode::ModdedGamemode;
-use crate::entities::scores::{Score, ScoreSorting, ScoreStatus};
+use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
-use crate::models::osu::charts::{Chart, ChartEntry};
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
 use crate::repositories::scores;
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
@@ -97,7 +96,7 @@ pub async fn submit(
             .iter_names()
             .map(|(name, _)| name)
             .collect();
-        warn!("Found flags {flags:?} on score from ");
+        warn!(user_id = user.user_id, "Found flags {flags:?} on score.");
     }
 
     let task_ctx = ctx.clone();
@@ -174,6 +173,10 @@ pub async fn submit(
         return Ok(ScoreSubmissionResult::Ok);
     }
 
+    if args.score.stats.max_combo as u32 > old_stats.max_combo {
+        update_stats.update_max_combo(args.score.stats.max_combo);
+    }
+
     let performance = performance_service::calculate(PerformanceRequest {
         beatmap_id: beatmap.beatmap_id,
         beatmap_md5: &beatmap.beatmap_md5,
@@ -237,10 +240,6 @@ pub async fn submit(
         Some(_) => ScoreStatus::Completed,
     };
 
-    if args.score.stats.max_combo as u32 > old_stats.max_combo {
-        update_stats.update_max_combo(args.score.stats.max_combo);
-    }
-
     let score = scores::create(
         ctx,
         user.user_id,
@@ -272,7 +271,8 @@ pub async fn submit(
     let mut restricted = !user.privileges.is_publicly_visible();
     let performance_autorestrict_cap =
         performance_caps::fetch_one(ctx, modded_gamemode, sanitized_mods).await?;
-    if !user.whitelist.is_whitelisted_for(modded_gamemode)
+    if !restricted
+        && !user.whitelist.is_whitelisted_for(modded_gamemode)
         && score.performance >= performance_autorestrict_cap
     {
         users::restrict_user(
@@ -286,8 +286,8 @@ pub async fn submit(
 
     // TODO: publish score amqp event
 
-    let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
     let mut new_rank = None;
+    let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
     let pb_rank = match &personal_best {
         Some(pb) => Some(
             scores::find_rank(
@@ -295,7 +295,7 @@ pub async fn submit(
                 user.user_id,
                 &beatmap.beatmap_md5,
                 modded_gamemode,
-                ScoreSorting::Performance(pb.performance),
+                ScoreRankingMetric::Performance(pb.performance),
             )
             .await?,
         ),
@@ -303,10 +303,10 @@ pub async fn submit(
     };
     let score_rank = scores::find_rank(
         ctx,
-        score.score_id,
+        user.user_id,
         &beatmap.beatmap_md5,
         modded_gamemode,
-        ScoreSorting::Performance(score.performance),
+        ScoreRankingMetric::Performance(score.performance),
     )
     .await?;
     if status == ScoreStatus::Best && !restricted {
@@ -338,13 +338,13 @@ pub async fn submit(
     }
 
     let new_stats = update_stats.apply(&old_stats);
-    let achievements =
-        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
-
     let task_ctx = ctx.clone();
     tokio::spawn(async move {
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
     });
+
+    let achievements =
+        unlock_achievements(ctx, &score, &new_stats, performance.stars, new_rank).await?;
 
     let beatmap_ranking_chart =
         charts::beatmap_ranking(&beatmap, &personal_best, &score, pb_rank, score_rank);

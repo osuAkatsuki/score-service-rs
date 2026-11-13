@@ -2,7 +2,7 @@ use crate::api::context::RequestContext;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::mode::ModdedGamemode;
 use crate::entities::mods::Mods;
-use crate::entities::scores::{Score, ScoreSorting, ScoreStatus};
+use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
 use chrono::Utc;
 
 pub async fn create(
@@ -74,7 +74,7 @@ pub async fn find_rank(
     user_id: i64,
     beatmap_md5: &str,
     mode: ModdedGamemode,
-    sort: ScoreSorting,
+    ranking_metric: ScoreRankingMetric,
 ) -> sqlx::Result<i64> {
     let query = format!(
         r#"SELECT COUNT(*) FROM {}
@@ -84,15 +84,15 @@ pub async fn find_rank(
         AND completed = 3
         AND userid != ?
         AND {} >= ?
-        AND (users.privileges & 1) > 0"#,
+        AND (users.privileges & 1) = 1"#,
         mode.scores_table(),
-        sort.column_name(),
+        ranking_metric.column_name(),
     );
     let count: i64 = sqlx::query_scalar(&query)
         .bind(beatmap_md5)
         .bind(mode.as_gamemode() as u8)
         .bind(user_id)
-        .bind(sort)
+        .bind(ranking_metric)
         .fetch_one(&ctx.db)
         .await?;
     Ok(count + 1)
