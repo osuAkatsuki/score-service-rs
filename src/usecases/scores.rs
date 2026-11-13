@@ -431,7 +431,7 @@ pub async fn submit(
         fail_time: args.fail_time,
         visual_settings_b64: &args.event_data.visual_settings_b64,
         updated_beatmap_hash: &args.beatmap_md5,
-        storyboard_md5: args.storyboard_md5.as_ref().map(|x| x.as_str()),
+        storyboard_md5: args.storyboard_md5.as_deref(),
         iv_b64: &args.event_data.iv_b64,
         unique_ids: &args.event_data.unique_ids,
         score_time: args.score_time,
@@ -439,7 +439,7 @@ pub async fn submit(
         client_hash_b64: &args.event_data.client_hash_b64,
         score_id: score.score_id,
         user_id: user.user_id,
-        osu_auth_token: args.anticheat_token.as_ref().map(|x| x.as_str()),
+        osu_auth_token: args.anticheat_token.as_deref(),
         mode_vn: modded_gamemode.as_gamemode() as u8,
         relax: modded_gamemode.mode_mod() as u8,
     };

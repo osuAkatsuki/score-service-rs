@@ -159,10 +159,7 @@ impl SubmitScoreArgs {
                 .format(DATETIME_FORMAT_STR),
             self.score.stats.osu_version,
             self.client_info.client_hash,
-            self.storyboard_md5
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or(""),
+            self.storyboard_md5.as_deref().unwrap_or(""),
         );
         format!("{:x}", md5::compute(&formatted))
     }
