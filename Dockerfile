@@ -20,7 +20,7 @@ RUN cargo build --release --bin score-service
 FROM debian:bookworm-slim AS runtime
 # Install openssl, root certificates, pip and git
 RUN apt-get update && \
-    apt-get install -y openssl ca-certificates python3-pip git && \
+    apt-get install -y --no-install-recommends openssl ca-certificates python3-pip git && \
     apt-get autoremove -y && \
     apt-get clean
 RUN pip install --break-system-packages git+https://github.com/osuAkatsuki/akatsuki-cli
