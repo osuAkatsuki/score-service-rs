@@ -5,7 +5,7 @@ use crate::common::redis_pool::{RedisPool, RedisPoolManager};
 use crate::common::state::AppState;
 use crate::repositories::achievements;
 use crate::settings::AppSettings;
-use aws_sdk_s3::config::{Credentials, Region};
+use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use deadpool::Runtime;
 use redis::{AsyncConnectionConfig, Commands};
 use sqlx::mysql::MySqlPoolOptions;
@@ -104,6 +104,7 @@ pub fn initialize_s3(settings: &'static AppSettings) -> Option<aws_sdk_s3::Clien
         "static",
     );
     let config = aws_sdk_s3::config::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
         .region(region)
         .credentials_provider(credentials)
         .endpoint_url(aws_endpoint_url)
