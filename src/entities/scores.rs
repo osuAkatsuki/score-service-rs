@@ -218,7 +218,7 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for Score {
             status: ScoreStatus::from(raw_score.completed),
             score_md5: raw_score.checksum,
             created_at: DateTime::from_timestamp(raw_score.time as _, 0)
-                .unwrap_or_else(|| DateTime::default()),
+                .unwrap_or_default(),
         })
     }
 }
@@ -247,7 +247,7 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for LeaderboardScore {
             },
             performance: raw_score.pp,
             created_at: DateTime::from_timestamp(raw_score.time as _, 0)
-                .unwrap_or_else(|| DateTime::default()),
+                .unwrap_or_default(),
         })
     }
 }

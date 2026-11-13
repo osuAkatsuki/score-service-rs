@@ -116,7 +116,7 @@ pub async fn initialize_achievements(db: &Pool<MySql>) -> anyhow::Result<&'stati
     let achievements = achievements::fetch_all(db).await?;
     let achievements: Vec<_> = achievements
         .into_iter()
-        .map(|achievement| Achievement::map_from(achievement))
+        .map(Achievement::map_from)
         .collect();
     let achievements = achievements.into_boxed_slice();
     Ok(Box::leak(achievements))
