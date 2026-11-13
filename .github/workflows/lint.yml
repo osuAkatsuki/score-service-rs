@@ -1,0 +1,27 @@
+name: Lint
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/lint.yml"
+  pull_request:
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      # Warnings are reported, but only the lints that clippy denies by default fail the job
+      - name: Run clippy
+        run: cargo clippy --all-targets --locked
