@@ -52,6 +52,20 @@ pub struct Score {
     pub created_at: DateTime<Utc>,
 }
 
+pub struct CreateScoreArgs<'a> {
+    pub user_id: i64,
+    pub beatmap_md5: &'a str,
+    pub mode: ModdedGamemode,
+    pub score: i32,
+    pub accuracy: Accuracy,
+    pub max_combo: u16,
+    pub perfect_combo: bool,
+    pub mods: Mods,
+    pub performance: f32,
+    pub score_md5: &'a str,
+    pub status: ScoreStatus,
+}
+
 #[derive(Clone)]
 pub struct LeaderboardScore {
     /// The position of this score on the leaderboard it was fetched from
@@ -218,7 +232,7 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for Score {
             status: ScoreStatus::from(raw_score.completed),
             score_md5: raw_score.checksum,
             created_at: DateTime::from_timestamp(raw_score.time as _, 0)
-                .unwrap_or_else(|| DateTime::default()),
+                .unwrap_or_default(),
         })
     }
 }
@@ -247,7 +261,7 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for LeaderboardScore {
             },
             performance: raw_score.pp,
             created_at: DateTime::from_timestamp(raw_score.time as _, 0)
-                .unwrap_or_else(|| DateTime::default()),
+                .unwrap_or_default(),
         })
     }
 }
@@ -277,7 +291,6 @@ struct RawScore {
     pub time: i32,
     pub play_mode: i8,
     pub completed: i8,
-    pub accuracy: f32,
     pub pp: f32,
     pub checksum: Option<String>,
 }

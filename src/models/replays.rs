@@ -5,7 +5,7 @@ use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 
 /// The version of the osu! client the replay files claim to be created by
-const OSU_VERSION: i32 = 2021_11_03;
+const OSU_VERSION: i32 = 20211103;
 
 /// The amount of .NET ticks (100 nanoseconds) between 01.01.0001 and the unix epoch
 const UNIX_EPOCH_TICKS: i64 = 621_355_968_000_000_000;

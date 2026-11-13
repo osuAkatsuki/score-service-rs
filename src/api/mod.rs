@@ -29,7 +29,7 @@ pub fn router() -> Router<AppState> {
 }
 
 pub async fn serve(settings: &'static AppSettings) -> anyhow::Result<()> {
-    let state = lifecycle::initialize_state(&settings).await?;
+    let state = lifecycle::initialize_state(settings).await?;
     let background_tasks = state.background_tasks.clone();
     let addr = SocketAddr::from((settings.app_host, settings.app_port));
     info!("Listening on {addr}");

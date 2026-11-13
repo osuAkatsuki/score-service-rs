@@ -17,8 +17,10 @@ const ERROR_INVALID_USER: &str = "error: nouser";
 const ERROR_INVALID_PASSWORD: &str = "error: pass";
 const ERROR_USER_RESTRICTED: &str = "error: ban";
 const ERROR_INVALID_BEATMAP: &str = "error: beatmap";
+#[expect(dead_code, reason = "understood by the client, but never sent yet")]
 const ERROR_VERSION_TOO_OLD: &str = "error: oldver";
 const ERROR_SUBMISSION_DISALLOWED: &str = "error: no";
+#[expect(dead_code, reason = "understood by the client, but never sent yet")]
 const ERROR_SUBMISSION_DISABLED: &str = "error: disabled";
 pub async fn submit(
     ctx: RequestContext,

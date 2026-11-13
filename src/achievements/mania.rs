@@ -10,8 +10,7 @@ pub fn mania_skill_pass_1(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (1.0 <= star_rating)
-        && (star_rating < 2.0)
+        && (1.0..2.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -22,8 +21,7 @@ pub fn mania_skill_pass_2(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (2.0 <= star_rating)
-        && (star_rating < 3.0)
+        && (2.0..3.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -34,8 +32,7 @@ pub fn mania_skill_pass_3(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (3.0 <= star_rating)
-        && (star_rating < 4.0)
+        && (3.0..4.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -46,8 +43,7 @@ pub fn mania_skill_pass_4(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (4.0 <= star_rating)
-        && (star_rating < 5.0)
+        && (4.0..5.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -58,8 +54,7 @@ pub fn mania_skill_pass_5(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (5.0 <= star_rating)
-        && (star_rating < 6.0)
+        && (5.0..6.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -70,8 +65,7 @@ pub fn mania_skill_pass_6(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (6.0 <= star_rating)
-        && (star_rating < 7.0)
+        && (6.0..7.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -82,8 +76,7 @@ pub fn mania_skill_pass_7(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (7.0 <= star_rating)
-        && (star_rating < 8.0)
+        && (7.0..8.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -94,8 +87,7 @@ pub fn mania_skill_pass_8(
     _global_rank: Option<usize>,
 ) -> bool {
     !score.mods.has_any(Mods::NoFail)
-        && (8.0 <= star_rating)
-        && (star_rating < 9.0)
+        && (8.0..9.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -106,8 +98,7 @@ pub fn mania_skill_fc_1(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (1.0 <= star_rating)
-        && (star_rating < 2.0)
+        && (1.0..2.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -118,8 +109,7 @@ pub fn mania_skill_fc_2(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (2.0 <= star_rating)
-        && (star_rating < 3.0)
+        && (2.0..3.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -130,8 +120,7 @@ pub fn mania_skill_fc_3(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (3.0 <= star_rating)
-        && (star_rating < 4.0)
+        && (3.0..4.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -142,8 +131,7 @@ pub fn mania_skill_fc_4(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (4.0 <= star_rating)
-        && (star_rating < 5.0)
+        && (4.0..5.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -154,8 +142,7 @@ pub fn mania_skill_fc_5(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (5.0 <= star_rating)
-        && (star_rating < 6.0)
+        && (5.0..6.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -166,8 +153,7 @@ pub fn mania_skill_fc_6(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (6.0 <= star_rating)
-        && (star_rating < 7.0)
+        && (6.0..7.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -178,8 +164,7 @@ pub fn mania_skill_fc_7(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (7.0 <= star_rating)
-        && (star_rating < 8.0)
+        && (7.0..8.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 
@@ -190,8 +175,7 @@ pub fn mania_skill_fc_8(
     _global_rank: Option<usize>,
 ) -> bool {
     score.perfect_combo
-        && (8.0 <= star_rating)
-        && (star_rating < 9.0)
+        && (8.0..9.0).contains(&star_rating)
         && score.mode.as_gamemode() == Gamemode::Mania
 }
 

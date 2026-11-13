@@ -7,10 +7,14 @@ use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
 use crate::entities::mods::Mods;
-use crate::entities::scores::{LeaderboardFilter, Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent};
+use crate::entities::scores::{
+    CreateScoreArgs, LeaderboardFilter, Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent,
+};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
-use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
+use crate::models::osu::score_submission::{
+    ScoreFlags, ScoreSubmissionResult, SubmissionCharts, SubmitScoreArgs,
+};
 use crate::repositories::{match_game_scores, scores};
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{error, info, warn};
@@ -77,7 +81,7 @@ pub async fn fetch_leaderboard_view(
     };
 
     let leaderboard_size = user.privileges.is_donor()
-        .then(|| user.leaderboard_size)
+        .then_some(user.leaderboard_size)
         .flatten()
         .unwrap_or_else(|| AppSettings::get().leaderboard_size);
     let leaderboard_scores = scores::fetch_leaderboard_view(
@@ -278,12 +282,14 @@ pub async fn submit(
         _ = associate_multiplayer_score(
             &task_ctx,
             user.user_id,
-            args.score.stats.mode,
-            args.score.stats.accuracy,
-            args.score.stats.score,
-            args.score.stats.max_combo as _,
-            sanitized_mods,
-            args.score.stats.passed,
+            MultiplayerScore {
+                mode: args.score.stats.mode,
+                accuracy: args.score.stats.accuracy,
+                score: args.score.stats.score,
+                max_combo: args.score.stats.max_combo as _,
+                mods: sanitized_mods,
+                passed: args.score.stats.passed,
+            },
         )
         .await;
     });
@@ -311,17 +317,19 @@ pub async fn submit(
         };
         scores::create(
             ctx,
-            user.user_id,
-            &beatmap.beatmap_md5,
-            modded_gamemode,
-            args.score.stats.score,
-            args.score.stats.accuracy,
-            args.score.stats.max_combo,
-            args.score.stats.perfect_combo,
-            sanitized_mods,
-            0.0,
-            &args.score.score_md5,
-            status,
+            CreateScoreArgs {
+                user_id: user.user_id,
+                beatmap_md5: &beatmap.beatmap_md5,
+                mode: modded_gamemode,
+                score: args.score.stats.score,
+                accuracy: args.score.stats.accuracy,
+                max_combo: args.score.stats.max_combo,
+                perfect_combo: args.score.stats.perfect_combo,
+                mods: sanitized_mods,
+                performance: 0.0,
+                score_md5: &args.score.score_md5,
+                status,
+            },
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -348,17 +356,19 @@ pub async fn submit(
     let Ok(performance) = performance else {
         scores::create(
             ctx,
-            user.user_id,
-            &beatmap.beatmap_md5,
-            modded_gamemode,
-            args.score.stats.score,
-            args.score.stats.accuracy,
-            args.score.stats.max_combo,
-            args.score.stats.perfect_combo,
-            sanitized_mods,
-            0.0,
-            &args.score.score_md5,
-            ScoreStatus::Completed,
+            CreateScoreArgs {
+                user_id: user.user_id,
+                beatmap_md5: &beatmap.beatmap_md5,
+                mode: modded_gamemode,
+                score: args.score.stats.score,
+                accuracy: args.score.stats.accuracy,
+                max_combo: args.score.stats.max_combo,
+                perfect_combo: args.score.stats.perfect_combo,
+                mods: sanitized_mods,
+                performance: 0.0,
+                score_md5: &args.score.score_md5,
+                status: ScoreStatus::Completed,
+            },
         )
         .await?;
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -403,17 +413,19 @@ pub async fn submit(
 
     let score = scores::create(
         ctx,
-        user.user_id,
-        &beatmap.beatmap_md5,
-        modded_gamemode,
-        args.score.stats.score,
-        args.score.stats.accuracy,
-        args.score.stats.max_combo,
-        args.score.stats.perfect_combo,
-        sanitized_mods,
-        performance.pp,
-        &args.score.score_md5,
-        status,
+        CreateScoreArgs {
+            user_id: user.user_id,
+            beatmap_md5: &beatmap.beatmap_md5,
+            mode: modded_gamemode,
+            score: args.score.stats.score,
+            accuracy: args.score.stats.accuracy,
+            max_combo: args.score.stats.max_combo,
+            perfect_combo: args.score.stats.perfect_combo,
+            mods: sanitized_mods,
+            performance: performance.pp,
+            score_md5: &args.score.score_md5,
+            status,
+        },
     )
     .await?;
     info!(
@@ -431,7 +443,7 @@ pub async fn submit(
         fail_time: args.fail_time,
         visual_settings_b64: &args.event_data.visual_settings_b64,
         updated_beatmap_hash: &args.beatmap_md5,
-        storyboard_md5: args.storyboard_md5.as_ref().map(|x| x.as_str()),
+        storyboard_md5: args.storyboard_md5.as_deref(),
         iv_b64: &args.event_data.iv_b64,
         unique_ids: &args.event_data.unique_ids,
         score_time: args.score_time,
@@ -439,7 +451,7 @@ pub async fn submit(
         client_hash_b64: &args.event_data.client_hash_b64,
         score_id: score.score_id,
         user_id: user.user_id,
-        osu_auth_token: args.anticheat_token.as_ref().map(|x| x.as_str()),
+        osu_auth_token: args.anticheat_token.as_deref(),
         mode_vn: modded_gamemode.as_gamemode() as u8,
         relax: modded_gamemode.mode_mod() as u8,
     };
@@ -586,24 +598,29 @@ pub async fn submit(
         ],
     };*/
 
-    Ok(ScoreSubmissionResult::Charts {
+    Ok(ScoreSubmissionResult::Charts(Box::new(SubmissionCharts {
         beatmap,
         achievements,
         score_id: score.score_id,
         beatmap_ranking: beatmap_ranking_chart,
         overall_ranking: overall_ranking_chart,
-    })
+    })))
 }
 
-async fn associate_multiplayer_score(
-    ctx: &RequestContext,
-    user_id: i64,
+/// The part of a submitted score that is stored for the multiplayer match it was set in
+struct MultiplayerScore {
     mode: Gamemode,
     accuracy: Accuracy,
     score: i32,
     max_combo: i32,
     mods: Mods,
     passed: bool,
+}
+
+async fn associate_multiplayer_score(
+    ctx: &RequestContext,
+    user_id: i64,
+    score: MultiplayerScore,
 ) -> ServiceResult<()> {
     let Some(user_match) = bancho_service::fetch_player_match_details(user_id).await? else {
         return Ok(());
@@ -616,12 +633,12 @@ async fn associate_multiplayer_score(
             team: user_match.team as _,
             game_id: user_match.game_id as _,
             match_id: user_match.match_id as _,
-            mode,
-            mods,
-            score,
-            passed,
-            accuracy,
-            max_combo,
+            mode: score.mode,
+            mods: score.mods,
+            score: score.score,
+            passed: score.passed,
+            accuracy: score.accuracy,
+            max_combo: score.max_combo,
         },
     )
     .await?;

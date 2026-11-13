@@ -117,7 +117,7 @@ impl Mods {
     }
 }
 
-pub const MODS_SHORT: [&'static str; 31] = [
+pub const MODS_SHORT: [&str; 31] = [
     "NF", "EZ", "TD", "HD", "HR", "SD", "DT", "RX", "HT", "NC", "FL", "AT", "SO", "AP", "PF", "4K",
     "5K", "6K", "7K", "8K", "FI", "RN", "CN", "TP", "9K", "CO", "1K", "3K", "2K", "V2", "MR",
 ];
@@ -195,7 +195,7 @@ impl FromStr for Mods {
     }
 }
 
-const MODS_DEBUG: [&'static str; 31] = [
+const MODS_DEBUG: [&str; 31] = [
     "NoFail",
     "Easy",
     "TouchDevice",
@@ -234,8 +234,7 @@ impl Debug for Mods {
         let mut mods = vec![];
 
         let v = self.bits();
-        for i in 0..MODS_DEBUG.len() {
-            let debug_str = MODS_DEBUG[i];
+        for (i, debug_str) in MODS_DEBUG.into_iter().enumerate() {
             if (v & (1 << i)) != 0 {
                 mods.push(debug_str);
             }
@@ -259,8 +258,7 @@ impl Display for Mods {
         }
 
         let v = displayed_mods.bits();
-        for i in 0..MODS_SHORT.len() {
-            let short_str = MODS_SHORT[i];
+        for (i, short_str) in MODS_SHORT.into_iter().enumerate() {
             if (v & (1 << i)) != 0 {
                 mods.push(short_str);
             }
