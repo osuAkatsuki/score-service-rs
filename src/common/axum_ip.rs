@@ -17,7 +17,10 @@ fn parse_forwarded_for(forwarded_for: &str) -> Result<IpAddr, AddrParseError> {
 }
 
 async fn get_ip_addr(parts: &mut Parts) -> ServiceResult<IpAddrInfo> {
-    if let Some(ip) = parts.headers.get("CF-Connecting-IP") {
+    if let Some(ip) = parts.headers.get("X-Real-IP") {
+        let ip_addr = IpAddr::from_str(ip.to_str()?.trim())?;
+        Ok(IpAddrInfo { ip_addr })
+    } else if let Some(ip) = parts.headers.get("CF-Connecting-IP") {
         let ip_addr = IpAddr::from_str(ip.to_str()?)?;
         Ok(IpAddrInfo { ip_addr })
     } else if let Some(forwarded_for) = parts.headers.get("X-Forwarded-For") {
