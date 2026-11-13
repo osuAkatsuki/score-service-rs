@@ -3,6 +3,7 @@ use bitflags::bitflags;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Error, ErrorKind};
 use std::str::FromStr;
+use serde::{Deserialize, Deserializer};
 
 bitflags! {
     #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -169,6 +170,14 @@ impl Mods {
             None => Mods::None,
             Some(mod_index) => Mods::from_bits_truncate(1 << mod_index),
         }
+    }
+}
+
+/// The osu! client sends mods as their numeric bit representation
+impl<'de> Deserialize<'de> for Mods {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bits = u32::deserialize(deserializer)?;
+        Ok(Mods::from_bits_truncate(bits))
     }
 }
 

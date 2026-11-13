@@ -4,15 +4,118 @@ use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
 use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
-use crate::entities::mode::{Gamemode, ModdedGamemode};
+use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
 use crate::entities::mods::Mods;
-use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent};
+use crate::entities::scores::{LeaderboardFilter, Score, ScoreRankingMetric, ScoreStatus, SubmissionEvent};
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
 use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionResult, SubmitScoreArgs};
 use crate::repositories::{match_game_scores, scores};
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{info, warn};
+use crate::models::beatmaps::RankedStatus;
+use crate::models::osu::leaderboards::{FetchLeaderboardArgs, LeaderboardType, UserLeaderboardScoresView, UserLeaderboardView};
+use crate::settings::AppSettings;
+
+const CURRENT_LBS_VERSION: i32 = 4;
+pub async fn fetch_leaderboard_view(
+    ctx: &RequestContext,
+    args: FetchLeaderboardArgs,
+) -> ServiceResult<UserLeaderboardView> {
+    let user = users::fetch_one_and_auth(ctx, &args.username, &args.password_md5).await?;
+    if args.leaderboard_version != CURRENT_LBS_VERSION {
+        let task_ctx = ctx.clone();
+        tokio::spawn(async move {
+            _ = users::restrict_user(&task_ctx, user.user_id, "osu! stable leaderboard version mismatch.").await;
+        });
+    }
+
+    let beatmap = match beatmaps::fetch_by_md5(&args.beatmap_md5).await {
+        Ok(beatmap) => beatmap,
+        Err(AppError::BeatmapsNotFound) => return match beatmaps::file_name_exists(ctx, &args.file_name).await? {
+            true => Ok(UserLeaderboardView::Status(RankedStatus::UpdateAvailable)),
+            false => Ok(UserLeaderboardView::Status(RankedStatus::NotSubmitted)),
+        },
+        Err(e) => return Err(e),
+    };
+
+    if !beatmap.has_leaderboards() || args.leaderboard_type == LeaderboardType::Local {
+        return Ok(UserLeaderboardView::Status(beatmap.status));
+    }
+
+    // The editor is only interested in the beatmap itself
+    if args.requesting_from_editor_song_select {
+        return Ok(UserLeaderboardView::Beatmap(beatmap));
+    }
+
+    // Remove any invalid mods for this game mode (e.g. Relax on Mania)
+    let sanitized_mods = args.mods.sanitize_for_mode(args.mode);
+    let modded_gamemode = ModdedGamemode::from_mode_and_mods(args.mode, sanitized_mods);
+    let display_pp_as_score = modded_gamemode.mode_mod() != GamemodeMod::Vanilla || user.vanilla_pp_leaderboards;
+
+    let filter = match args.leaderboard_type {
+        LeaderboardType::Global | LeaderboardType::Local => LeaderboardFilter::None,
+        LeaderboardType::Mods => LeaderboardFilter::Mods(sanitized_mods),
+        LeaderboardType::Friends => {
+            let friends = users::fetch_user_friends(ctx, user.user_id).await?;
+            LeaderboardFilter::Friends(friends)
+        },
+        LeaderboardType::Country => LeaderboardFilter::Country(&user.country),
+    };
+
+    let leaderboard_size = user.privileges.is_donor()
+        .then(|| user.leaderboard_size)
+        .flatten()
+        .unwrap_or_else(|| AppSettings::get().leaderboard_size);
+    let leaderboard_scores = scores::fetch_leaderboard_view(
+        ctx,
+        user.user_id,
+        &beatmap.beatmap_md5,
+        modded_gamemode,
+        display_pp_as_score,
+        &filter,
+        leaderboard_size,
+    ).await?;
+
+    // Fewer scores than requested means there is nothing left that has not been fetched already
+    let is_complete = leaderboard_scores.len() < leaderboard_size as usize;
+    let personal_best = leaderboard_scores.iter()
+        .find(|score| score.user_id == user.user_id)
+        .cloned();
+
+    let personal_best = match personal_best {
+        None if !is_complete => scores::fetch_leaderboard_personal_best(
+            ctx,
+            user.user_id,
+            &beatmap.beatmap_md5,
+            modded_gamemode,
+            display_pp_as_score,
+            &filter,
+        ).await?,
+        personal_best => personal_best,
+    };
+
+    let total_scores = match is_complete {
+        true => leaderboard_scores.len() as _,
+        false => scores::fetch_leaderboard_scores_count(
+            ctx,
+            user.user_id,
+            &beatmap.beatmap_md5,
+            modded_gamemode,
+            display_pp_as_score,
+            &filter,
+        ).await?,
+    };
+
+    Ok(UserLeaderboardView::ScoresView(UserLeaderboardScoresView {
+        beatmap,
+        total_scores,
+        personal_best,
+        display_pp_as_score,
+        user_id: user.user_id,
+        scores: leaderboard_scores,
+    }))
+}
 
 pub async fn submit(
     ctx: &RequestContext,

@@ -2,11 +2,13 @@ use crate::api::context::RequestContext;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::mode::ModdedGamemode;
 use crate::entities::mods::Mods;
-use crate::entities::scores::{Score, ScoreRankingMetric, ScoreStatus};
+use crate::entities::scores::{LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric, ScoreStatus};
 use chrono::Utc;
 use lapin::BasicProperties;
 use lapin::options::BasicPublishOptions;
 use lapin::types::ShortString;
+use sqlx::Arguments;
+use sqlx::mysql::MySqlArguments;
 use crate::settings::AppSettings;
 
 pub async fn create(
@@ -71,6 +73,140 @@ pub async fn create(
         score_md5: Some(score_md5.to_owned()),
         created_at: now,
     })
+}
+
+/// Builds the part all beatmap leaderboard queries have in common:
+/// `user_bests` numbers the matching scores of every user starting with their best one,
+/// `leaderboard` ranks those best scores against each other.
+/// Restricted users only ever show up on their own leaderboards.
+fn leaderboard_query(
+    mode: ModdedGamemode,
+    display_pp_as_score: bool,
+    filter: &LeaderboardFilter<'_>,
+    select: &str,
+) -> String {
+    let sort_column = match display_pp_as_score {
+        true => "pp",
+        false => "score",
+    };
+    format!(
+        r#"WITH user_bests AS (
+        SELECT users.username AS username, c.tag AS clan_tag,
+        s.id AS score_id, s.userid AS user_id, s.score AS score, s.max_combo AS max_combo,
+        s.full_combo AS full_combo, s.mods AS mods, s.`300_count` AS `300_count`,
+        s.`100_count` AS `100_count`, s.`50_count` AS `50_count`, s.gekis_count AS gekis_count,
+        s.katus_count AS katus_count, s.misses_count AS misses_count, s.time AS time, s.pp AS pp,
+        ROW_NUMBER() OVER (PARTITION BY s.userid ORDER BY s.{sort_column} DESC, s.time ASC) AS user_score_rank
+        FROM {} s
+        INNER JOIN users ON users.id = s.userid
+        LEFT JOIN clans c ON c.id = users.clan_id
+        WHERE s.beatmap_md5 = ?
+        AND s.play_mode = ?
+        AND s.completed {}
+        AND (users.privileges & 1 = 1 OR users.id = ?)
+        {}
+    ), leaderboard AS (
+        SELECT *, CAST(ROW_NUMBER() OVER (ORDER BY {sort_column} DESC, time ASC) AS SIGNED) AS score_rank
+        FROM user_bests
+        WHERE user_score_rank = 1
+    )
+    {select}"#,
+        mode.scores_table(),
+        filter.status_query_part(),
+        filter.query_part(),
+    )
+}
+
+fn leaderboard_arguments(
+    user_id: i64,
+    beatmap_md5: &str,
+    mode: ModdedGamemode,
+    filter: &LeaderboardFilter<'_>,
+) -> sqlx::Result<MySqlArguments> {
+    let mut args = MySqlArguments::default();
+    args.add(beatmap_md5).map_err(sqlx::Error::Encode)?;
+    args.add(mode.as_gamemode() as u8)
+        .map_err(sqlx::Error::Encode)?;
+    args.add(user_id).map_err(sqlx::Error::Encode)?;
+
+    match filter {
+        LeaderboardFilter::None => {}
+        LeaderboardFilter::Friends(friend_ids) => {
+            // The user is part of their own friends leaderboard
+            args.add(user_id).map_err(sqlx::Error::Encode)?;
+            for friend_id in friend_ids {
+                args.add(*friend_id).map_err(sqlx::Error::Encode)?;
+            }
+        }
+        LeaderboardFilter::Mods(mods) => args.add(mods.bits()).map_err(sqlx::Error::Encode)?,
+        LeaderboardFilter::Country(country_code) => {
+            args.add(*country_code).map_err(sqlx::Error::Encode)?
+        }
+    }
+
+    Ok(args)
+}
+
+pub async fn fetch_leaderboard_view(
+    ctx: &RequestContext,
+    user_id: i64,
+    beatmap_md5: &str,
+    mode: ModdedGamemode,
+    display_pp_as_score: bool,
+    filter: &LeaderboardFilter<'_>,
+    leaderboard_size: i32,
+) -> sqlx::Result<Vec<LeaderboardScore>> {
+    let query = leaderboard_query(
+        mode,
+        display_pp_as_score,
+        filter,
+        "SELECT * FROM leaderboard ORDER BY score_rank LIMIT ?",
+    );
+    let mut args = leaderboard_arguments(user_id, beatmap_md5, mode, filter)?;
+    args.add(leaderboard_size).map_err(sqlx::Error::Encode)?;
+    sqlx::query_as_with(&query, args).fetch_all(&ctx.db).await
+}
+
+/// Fetches the score of the user on a leaderboard, ranked among everyone else on it.
+pub async fn fetch_leaderboard_personal_best(
+    ctx: &RequestContext,
+    user_id: i64,
+    beatmap_md5: &str,
+    mode: ModdedGamemode,
+    display_pp_as_score: bool,
+    filter: &LeaderboardFilter<'_>,
+) -> sqlx::Result<Option<LeaderboardScore>> {
+    let query = leaderboard_query(
+        mode,
+        display_pp_as_score,
+        filter,
+        "SELECT * FROM leaderboard WHERE user_id = ?",
+    );
+    let mut args = leaderboard_arguments(user_id, beatmap_md5, mode, filter)?;
+    args.add(user_id).map_err(sqlx::Error::Encode)?;
+    sqlx::query_as_with(&query, args)
+        .fetch_optional(&ctx.db)
+        .await
+}
+
+pub async fn fetch_leaderboard_scores_count(
+    ctx: &RequestContext,
+    user_id: i64,
+    beatmap_md5: &str,
+    mode: ModdedGamemode,
+    display_pp_as_score: bool,
+    filter: &LeaderboardFilter<'_>,
+) -> sqlx::Result<i64> {
+    let query = leaderboard_query(
+        mode,
+        display_pp_as_score,
+        filter,
+        "SELECT COUNT(*) FROM leaderboard",
+    );
+    let args = leaderboard_arguments(user_id, beatmap_md5, mode, filter)?;
+    sqlx::query_scalar_with(&query, args)
+        .fetch_one(&ctx.db)
+        .await
 }
 
 pub async fn find_rank(

@@ -49,6 +49,14 @@ pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> 
     Ok(())
 }
 
+pub async fn fetch_user_friends(
+    ctx: &RequestContext,
+    user_id: i64,
+) -> ServiceResult<Vec<i32>> {
+    let friends = users::fetch_user_friends(ctx, user_id).await?;
+    Ok(friends)
+}
+
 pub async fn increment_beatmap_playcount(
     ctx: &RequestContext,
     user_id: i64,
