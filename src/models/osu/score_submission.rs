@@ -217,7 +217,7 @@ impl FromStr for ScoreStatistics {
         let mode = split.next().ok_or(AppError::MalformedRequest)?;
         let client_timestamp = split.next().ok_or(AppError::MalformedRequest)?;
         let osu_version = split.next().ok_or(AppError::MalformedRequest)?;
-        if osu_version.len() < 8 {
+        if osu_version.len() < 8 || !osu_version.is_char_boundary(8) {
             return Err(AppError::MalformedRequest);
         }
 
