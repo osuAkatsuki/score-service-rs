@@ -1,4 +1,4 @@
-use crate::adapters::s3;
+use crate::adapters::{bancho_service, s3};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
 use crate::models::screenshot::{Screenshot, ScreenshotFormat};
@@ -22,7 +22,7 @@ pub async fn upload(
     let user = users::fetch_one_and_auth(ctx, username, password_md5).await?;
 
     // Screenshots are taken ingame
-    if !users::is_online(ctx, user.user_id).await? {
+    if !bancho_service::is_online(user.user_id).await? {
         warn!(
             user_id = user.user_id,
             "Tried to upload a screenshot while offline"

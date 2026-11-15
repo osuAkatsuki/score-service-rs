@@ -49,6 +49,17 @@ struct SendMessageArgs<'a> {
     message: &'a str,
 }
 
+#[derive(Serialize)]
+struct IsOnlineArgs {
+    #[serde(rename = "id")]
+    user_id: i64,
+}
+
+#[derive(Deserialize)]
+struct IsOnlineResponse {
+    result: bool,
+}
+
 /// Sends a chat message to a channel or user on behalf of the bot
 pub async fn send_message(target: &str, message: &str) -> ServiceResult<()> {
     let settings = AppSettings::get();
@@ -66,6 +77,20 @@ pub async fn send_message(target: &str, message: &str) -> ServiceResult<()> {
         .await?
         .error_for_status()?;
     Ok(())
+}
+
+/// Bancho keeps track of the sessions of every user that is logged into the game
+pub async fn is_online(user_id: i64) -> ServiceResult<bool> {
+    let url = make_url("/api/v1/isOnline");
+    let response: IsOnlineResponse = CLIENT
+        .get(url)
+        .query(&IsOnlineArgs { user_id })
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(response.result)
 }
 
 pub async fn fetch_player_match_details(user_id: i64) -> ServiceResult<Option<PlayerMatchDetails>> {
