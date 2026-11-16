@@ -147,9 +147,9 @@ impl ScoreSubmissionResult {
             ScoreSubmissionResult::Ok => ScoreSubmissionError::Disallowed.osu_format().to_owned(),
             ScoreSubmissionResult::Err(e) => e.osu_format().to_owned(),
             ScoreSubmissionResult::EmptyCharts { beatmap, score_id } => {
-                // The client only insists on the beatmap line. Of a chart it needs the id and
-                // the name, every ranking it is not given is drawn as a dash.
-                // The id of the score is only read from the overall ranking.
+                // The client only insists on the beatmap info.
+                // Beatmap Ranking is there to show a tooltip on the pp amount.
+                // Overall Ranking is there for the score id.
                 format!(
                     "{}\nchartId:beatmap|chartName:Beatmap Ranking|rankBefore:0|ppBefore:|ppAfter:\n\
                     chartId:overall|chartName:Overall Ranking|onlineScoreId:{score_id}",
