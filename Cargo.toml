@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 async-rs = "0.8.2"
-aws-sdk-s3 = "1.127.0"
+aws-sdk-s3 = { version = "1.127.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 axum = { version = "0.8.8", features = ["multipart"] }
 base64-simd = "0.8.0"
 bcrypt = "0.19.0"
