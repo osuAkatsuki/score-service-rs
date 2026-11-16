@@ -7,7 +7,6 @@ use crate::models::users::User;
 use crate::repositories::{stats, users};
 use std::collections::HashSet;
 use tracing::{error, info};
-use crate::models::privileges::Privileges;
 
 /// Usernames are unique regardless of their casing and of spaces being written as underscores
 fn make_safe_username(username: &str) -> String {
