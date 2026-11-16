@@ -7,6 +7,7 @@ use crate::models::users::User;
 use crate::repositories::{stats, users};
 use std::collections::HashSet;
 use tracing::{error, info};
+use crate::models::privileges::Privileges;
 
 /// Usernames are unique regardless of their casing and of spaces being written as underscores
 fn make_safe_username(username: &str) -> String {
@@ -46,6 +47,13 @@ pub async fn fetch_one_and_auth(
         Err(sqlx::Error::RowNotFound) => return Err(AppError::UsersNotFound),
         Err(e) => return unexpected(e),
     };
+
+    let privileges = Privileges::from_bits_retain(user.privileges);
+    // This check is exclusive to score-service, because none of the osu_web controllers
+    // should serve unverified users or users that cannot log in.
+    if !privileges.can_login() || privileges.is_pending_verification() {
+        return Err(AppError::UsersInvalidCredentials);
+    }
 
     if !verify_password(password, &user.password_md5).await? {
         return Err(AppError::UsersInvalidCredentials);
