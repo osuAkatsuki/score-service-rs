@@ -1,5 +1,5 @@
 use crate::api::context::RequestContext;
-use crate::common::error::AppError;
+use crate::common::error::{unexpected_err, AppError};
 use crate::models::osu::leaderboards::{FetchLeaderboardArgs, UserLeaderboardView};
 use crate::models::osu::score_submission::{
     ScoreSubmissionError, ScoreSubmissionResult, SubmitScoreArgs,
@@ -17,7 +17,11 @@ pub async fn fetch_leaderboard(
 }
 
 pub async fn submit(ctx: RequestContext, args: SubmitScoreArgs) -> ScoreSubmissionResult {
-    match scores::submit(&ctx, args).await {
+    // We have to spawn the task since axum will cancel the handler task on connection close.
+    let result = tokio::spawn(scores::submit(ctx, args)).await
+        .map_err(|e| unexpected_err(e))
+        .flatten();
+    match result {
         Ok(result) => result,
         Err(AppError::BeatmapsNotFound) => {
             ScoreSubmissionResult::Err(ScoreSubmissionError::UnrankedBeatmap)
