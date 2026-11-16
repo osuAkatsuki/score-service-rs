@@ -10,16 +10,13 @@ pub type ServiceResponse<T> = ServiceResult<Json<T>>;
 #[derive(Debug)]
 pub enum AppError {
     Unexpected,
+    Unauthorized,
     MalformedRequest,
 
     BeatmapsNotFound,
 
     PerformanceFailedCalculating,
 
-    ScoresAnticheatTokenMissing,
-    ScoresMissingReplay,
-    ScoresIllegalScore,
-    ScoresNotRanked,
     ScoresNotFound,
 
     ReplaysNotFound,
@@ -51,16 +48,13 @@ impl AppError {
     pub const fn code(&self) -> &'static str {
         match self {
             AppError::Unexpected => "unexpected",
+            AppError::Unauthorized => "unauthorized",
             AppError::MalformedRequest => "malformed_request",
 
             AppError::BeatmapsNotFound => "beatmaps.not_found",
 
             AppError::PerformanceFailedCalculating => "performance.failed_calculating",
 
-            AppError::ScoresAnticheatTokenMissing => "scores.anticheat_token_missing",
-            AppError::ScoresMissingReplay => "scores.missing_replay",
-            AppError::ScoresIllegalScore => "scores.illegal_score",
-            AppError::ScoresNotRanked => "scores.not_ranked",
             AppError::ScoresNotFound => "scores.not_found",
 
             AppError::ReplaysNotFound => "replays.not_found",
@@ -77,16 +71,13 @@ impl AppError {
     pub const fn message(&self) -> &'static str {
         match self {
             AppError::Unexpected => "An unexpected error has occurred.",
+            AppError::Unauthorized => "Unauthorized.",
             AppError::MalformedRequest => "The request is malformed.",
 
             AppError::BeatmapsNotFound => "Beatmap not found.",
 
             AppError::PerformanceFailedCalculating => "Failed to calculate performance.",
 
-            AppError::ScoresAnticheatTokenMissing => "The anticheat token is missing.",
-            AppError::ScoresMissingReplay => "The score is missing its replay.",
-            AppError::ScoresIllegalScore => "The score is illegal.",
-            AppError::ScoresNotRanked => "The score can not be ranked.",
             AppError::ScoresNotFound => "Score not found.",
 
             AppError::ReplaysNotFound => "Replay not found.",
@@ -107,10 +98,6 @@ impl AppError {
             }
 
             AppError::MalformedRequest
-            | AppError::ScoresAnticheatTokenMissing
-            | AppError::ScoresMissingReplay
-            | AppError::ScoresIllegalScore
-            | AppError::ScoresNotRanked
             | AppError::ScreenshotsInvalidFile => StatusCode::BAD_REQUEST,
 
             AppError::ScreenshotsNotAllowed => StatusCode::FORBIDDEN,
@@ -121,7 +108,7 @@ impl AppError {
             | AppError::ReplaysNotFound
             | AppError::UsersNotFound => StatusCode::NOT_FOUND,
 
-            AppError::UsersInvalidCredentials => StatusCode::UNAUTHORIZED,
+            AppError::Unauthorized | AppError::UsersInvalidCredentials => StatusCode::UNAUTHORIZED,
         }
     }
 

@@ -16,9 +16,7 @@ use crate::models::beatmaps::RankedStatus;
 use crate::models::osu::leaderboards::{
     FetchLeaderboardArgs, LeaderboardType, UserLeaderboardScoresView, UserLeaderboardView,
 };
-use crate::models::osu::score_submission::{
-    ScoreFlags, ScoreSubmissionResult, SubmissionCharts, SubmitScoreArgs,
-};
+use crate::models::osu::score_submission::{ScoreFlags, ScoreSubmissionError, ScoreSubmissionResult, SubmissionCharts, SubmitScoreArgs};
 use crate::repositories::{match_game_scores, scores};
 use crate::settings::AppSettings;
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
@@ -170,7 +168,7 @@ pub async fn submit(
             ctx.user_agent.as_deref().unwrap_or("none")
         );
         users::restrict_user(ctx, user.user_id, &reason).await?;
-        return Err(AppError::ScoresIllegalScore);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::UserRestricted));
     }
 
     // Honestly no idea where the 24 comes from
@@ -183,7 +181,7 @@ pub async fn submit(
             .is_none_or(|replay| replay.len() < 24)
     {
         users::restrict_user(ctx, user.user_id, "Submitted score without replay.").await?;
-        return Err(AppError::ScoresMissingReplay);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::UserRestricted));
     }
 
     let uninstall_md5 = md5::compute(&args.unique_ids.uninstall_md5);
@@ -195,7 +193,7 @@ pub async fn submit(
             "Submitted score with uninstall id hash mismatch.",
         )
         .await?;
-        return Err(AppError::ScoresIllegalScore);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::UserRestricted));
     }
 
     let disk_signature_md5 = md5::compute(&args.unique_ids.disk_signature_md5);
@@ -207,7 +205,7 @@ pub async fn submit(
             "Submitted score with disk signature mismatch.",
         )
         .await?;
-        return Err(AppError::ScoresIllegalScore);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::UserRestricted));
     }
 
     if args.beatmap_md5 != args.score.beatmap_md5 {
@@ -217,7 +215,7 @@ pub async fn submit(
             "Submitted score with beatmap hash mismatch (edited .osu file).",
         )
         .await?;
-        return Err(AppError::ScoresIllegalScore);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::UserRestricted));
     }
 
     if args.score_md5() != args.score.score_md5 {
@@ -227,7 +225,7 @@ pub async fn submit(
             "Submitted score with score hash mismatch.",
         )
         .await?;
-        return Err(AppError::ScoresIllegalScore);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::UserRestricted));
     }
 
     if args.score.stats.mods.is_illegal_combination() {
@@ -236,7 +234,7 @@ pub async fn submit(
             args.score.stats.mods
         );
         users::restrict_user(ctx, user.user_id, &reason).await?;
-        return Err(AppError::ScoresIllegalScore);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::UserRestricted));
     }
 
     // Very old osu! anticheat flags
@@ -257,7 +255,7 @@ pub async fn submit(
     });
     let mut beatmap = beatmaps::fetch_by_md5(&args.beatmap_md5).await?;
     if !beatmap.are_mods_rankable(args.score.stats.mods) || !beatmap.has_leaderboards() {
-        return Err(AppError::ScoresNotRanked);
+        return Ok(ScoreSubmissionResult::Err(ScoreSubmissionError::Disallowed));
     }
 
     // Remove any invalid mods for this game mode (e.g. Relax on Mania)

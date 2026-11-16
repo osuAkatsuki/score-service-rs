@@ -85,9 +85,27 @@ bitflags! {
     }
 }
 
+/// The errors the client understands in response to a score submission.
+#[derive(Debug)]
+pub enum ScoreSubmissionError {
+    /// Makes the client submit the score again
+    Retry,
+    InvalidUser,
+    InvalidPassword,
+    UserRestricted,
+    UnrankedBeatmap,
+    /// Understood by the client, but never sent yet
+    VersionTooOld,
+    Disallowed,
+    /// Understood by the client, but never sent yet
+    Disabled,
+}
+
 #[derive(Debug)]
 pub enum ScoreSubmissionResult {
+    // An alias for Err(ScoreSubmissionError::Disallowed)
     Ok,
+    Err(ScoreSubmissionError),
     Charts(Box<SubmissionCharts>),
 }
 
@@ -102,10 +120,26 @@ pub struct SubmissionCharts {
     pub achievements: Vec<Achievement>,
 }
 
+impl ScoreSubmissionError {
+    pub const fn osu_format(&self) -> &'static str {
+        match self {
+            ScoreSubmissionError::Retry => "",
+            ScoreSubmissionError::InvalidUser => "error: nouser",
+            ScoreSubmissionError::InvalidPassword => "error: pass",
+            ScoreSubmissionError::UserRestricted => "error: ban",
+            ScoreSubmissionError::UnrankedBeatmap => "error: beatmap",
+            ScoreSubmissionError::VersionTooOld => "error: oldver",
+            ScoreSubmissionError::Disallowed => "error: no",
+            ScoreSubmissionError::Disabled => "error: disabled",
+        }
+    }
+}
+
 impl ScoreSubmissionResult {
     pub fn osu_format(&self) -> String {
         match self {
-            ScoreSubmissionResult::Ok => "ok".to_owned(),
+            ScoreSubmissionResult::Ok => ScoreSubmissionError::Disallowed.osu_format().to_owned(),
+            ScoreSubmissionResult::Err(e) => e.osu_format().to_owned(),
             ScoreSubmissionResult::Charts(charts) => {
                 let SubmissionCharts {
                     beatmap,
@@ -789,10 +823,5 @@ mod tests {
             |achievements-new:osu-skill-pass-1+Rising Star+Can't go forward without the first steps.\
             /all-intro-hidden+Blindsight+I can see just perfectly";
         assert_eq!(result.osu_format(), expected);
-    }
-
-    #[test]
-    fn formats_submissions_without_charts_as_ok() {
-        assert_eq!(ScoreSubmissionResult::Ok.osu_format(), "ok");
     }
 }

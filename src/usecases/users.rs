@@ -55,7 +55,7 @@ pub async fn fetch_one_and_auth(
     // This check is exclusive to score-service, because none of the osu_web controllers
     // should serve unverified users or users that cannot log in.
     if !user.privileges.can_login() || user.privileges.is_pending_verification() {
-        Err(AppError::UsersInvalidCredentials)
+        Err(AppError::Unauthorized)
     } else {
         Ok(user)
     }

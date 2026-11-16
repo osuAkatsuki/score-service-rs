@@ -1,7 +1,9 @@
 use crate::api::context::RequestContext;
 use crate::common::error::AppError;
 use crate::models::osu::leaderboards::{FetchLeaderboardArgs, UserLeaderboardView};
-use crate::models::osu::score_submission::{ScoreSubmissionResult, SubmitScoreArgs};
+use crate::models::osu::score_submission::{
+    ScoreSubmissionError, ScoreSubmissionResult, SubmitScoreArgs,
+};
 use crate::usecases::scores;
 use axum::extract::Query;
 
@@ -14,39 +16,13 @@ pub async fn fetch_leaderboard(
         .map_err(|_| "error")
 }
 
-const ERROR_RETRY: &str = "";
-const ERROR_INVALID_USER: &str = "error: nouser";
-const ERROR_INVALID_PASSWORD: &str = "error: pass";
-const ERROR_USER_RESTRICTED: &str = "error: ban";
-const ERROR_INVALID_BEATMAP: &str = "error: beatmap";
-#[expect(dead_code, reason = "understood by the client, but never sent yet")]
-const ERROR_VERSION_TOO_OLD: &str = "error: oldver";
-const ERROR_SUBMISSION_DISALLOWED: &str = "error: no";
-#[expect(dead_code, reason = "understood by the client, but never sent yet")]
-const ERROR_SUBMISSION_DISABLED: &str = "error: disabled";
-pub async fn submit(
-    ctx: RequestContext,
-    args: SubmitScoreArgs,
-) -> Result<ScoreSubmissionResult, &'static str> {
+pub async fn submit(ctx: RequestContext, args: SubmitScoreArgs) -> ScoreSubmissionResult {
     match scores::submit(&ctx, args).await {
-        Ok(result) => Ok(result),
-        Err(AppError::Unexpected) => Err(ERROR_RETRY),
-        Err(AppError::UsersNotFound) => Err(ERROR_INVALID_USER),
-        Err(AppError::UsersInvalidCredentials) => Err(ERROR_INVALID_PASSWORD),
-        Err(AppError::BeatmapsNotFound | AppError::ScoresNotRanked) => Err(ERROR_INVALID_BEATMAP),
-        Err(AppError::ScoresIllegalScore | AppError::ScoresMissingReplay) => {
-            Err(ERROR_USER_RESTRICTED)
-        }
-        Err(AppError::MalformedRequest | AppError::ScoresAnticheatTokenMissing) => {
-            Err(ERROR_SUBMISSION_DISALLOWED)
-        }
-        Err(
-            AppError::PerformanceFailedCalculating
-            | AppError::ScoresNotFound
-            | AppError::ReplaysNotFound
-            | AppError::ScreenshotsNotAllowed
-            | AppError::ScreenshotsTooManyRequests
-            | AppError::ScreenshotsInvalidFile,
-        ) => unreachable!(),
+        Ok(result) => result,
+        Err(AppError::BeatmapsNotFound) => ScoreSubmissionResult::Err(ScoreSubmissionError::UnrankedBeatmap),
+        Err(AppError::UsersNotFound) => ScoreSubmissionResult::Err(ScoreSubmissionError::InvalidUser),
+        Err(AppError::UsersInvalidCredentials) => ScoreSubmissionResult::Err(ScoreSubmissionError::InvalidPassword),
+        Err(AppError::Unauthorized) => ScoreSubmissionResult::Err(ScoreSubmissionError::Disallowed),
+        _ => ScoreSubmissionResult::Err(ScoreSubmissionError::Retry),
     }
 }
