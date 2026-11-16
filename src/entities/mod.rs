@@ -1,5 +1,6 @@
 pub mod accuracy;
 pub mod achievements;
+pub mod match_game_scores;
 pub mod mode;
 pub mod mods;
 pub mod performance_caps;
@@ -7,4 +8,3 @@ pub mod scores;
 pub mod seasonal_backgrounds;
 pub mod stats;
 pub mod users;
-pub mod match_game_scores;

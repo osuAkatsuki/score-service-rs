@@ -771,7 +771,11 @@ mod tests {
                 entries: vec![ChartEntry::new_int("pp", Some(100), 120)],
             },
             achievements: vec![
-                achievement("osu-skill-pass-1", "Rising Star", "Can't go forward without the first steps."),
+                achievement(
+                    "osu-skill-pass-1",
+                    "Rising Star",
+                    "Can't go forward without the first steps.",
+                ),
                 achievement("all-intro-hidden", "Blindsight", "I can see just perfectly"),
             ],
         }));

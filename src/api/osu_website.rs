@@ -29,7 +29,11 @@ fn official_url(uri: &Uri) -> String {
 }
 
 pub async fn redirect(OriginalUri(uri): OriginalUri) -> Response {
-    (StatusCode::MOVED_PERMANENTLY, [(LOCATION, official_url(&uri))]).into_response()
+    (
+        StatusCode::MOVED_PERMANENTLY,
+        [(LOCATION, official_url(&uri))],
+    )
+        .into_response()
 }
 
 /// The beatmap is named in the body of the request, which only this kind of redirect preserves

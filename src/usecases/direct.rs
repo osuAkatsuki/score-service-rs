@@ -28,7 +28,10 @@ fn mirror_status(direct_status: i32) -> Option<i32> {
     }
 }
 
-pub async fn search(ctx: &RequestContext, args: DirectSearchArgs) -> ServiceResult<DirectSearchView> {
+pub async fn search(
+    ctx: &RequestContext,
+    args: DirectSearchArgs,
+) -> ServiceResult<DirectSearchView> {
     users::fetch_one_and_auth(ctx, &args.username, &args.password_md5).await?;
 
     let is_default_query = DEFAULT_QUERIES.contains(&args.query.as_str());

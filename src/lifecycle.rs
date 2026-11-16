@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crate::achievements::Achievement;
 use crate::common::amqp::{self, AmqpPublisher};
 use crate::common::redis_pool::{RedisPool, RedisPoolManager};
@@ -10,6 +9,7 @@ use deadpool::Runtime;
 use redis::{AsyncConnectionConfig, Commands};
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::{MySql, Pool};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::task::TaskTracker;
 use tracing::{info, warn};
@@ -79,12 +79,19 @@ pub async fn finish_background_tasks(background_tasks: &TaskTracker) {
     }
 }
 
-pub async fn initialize_amqp_publisher(settings: &AppSettings) -> anyhow::Result<Option<Arc<AmqpPublisher>>> {
+pub async fn initialize_amqp_publisher(
+    settings: &AppSettings,
+) -> anyhow::Result<Option<Arc<AmqpPublisher>>> {
     if settings.score_submission_routing_keys.is_empty() {
         return Ok(None);
     }
 
-    let uri = amqp::broker_uri(&settings.amqp_user, &settings.amqp_pass, &settings.amqp_host, &settings.amqp_port)?;
+    let uri = amqp::broker_uri(
+        &settings.amqp_user,
+        &settings.amqp_pass,
+        &settings.amqp_host,
+        &settings.amqp_port,
+    )?;
     let publisher = AmqpPublisher::connect(uri).await?;
     Ok(Some(Arc::new(publisher)))
 }

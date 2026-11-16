@@ -12,15 +12,17 @@ use crate::entities::scores::{
 };
 use crate::entities::stats::{Stats, UpdateStats};
 use crate::models::achievements::Achievement;
+use crate::models::beatmaps::RankedStatus;
+use crate::models::osu::leaderboards::{
+    FetchLeaderboardArgs, LeaderboardType, UserLeaderboardScoresView, UserLeaderboardView,
+};
 use crate::models::osu::score_submission::{
     ScoreFlags, ScoreSubmissionResult, SubmissionCharts, SubmitScoreArgs,
 };
 use crate::repositories::{match_game_scores, scores};
+use crate::settings::AppSettings;
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{error, info, warn};
-use crate::models::beatmaps::RankedStatus;
-use crate::models::osu::leaderboards::{FetchLeaderboardArgs, LeaderboardType, UserLeaderboardScoresView, UserLeaderboardView};
-use crate::settings::AppSettings;
 
 pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> ServiceResult<Score> {
     match scores::fetch_one(ctx, score_id).await? {
@@ -43,16 +45,23 @@ pub async fn fetch_leaderboard_view(
     if args.leaderboard_version != CURRENT_LBS_VERSION {
         let task_ctx = ctx.clone();
         ctx.spawn(async move {
-            _ = users::restrict_user(&task_ctx, user.user_id, "osu! stable leaderboard version mismatch.").await;
+            _ = users::restrict_user(
+                &task_ctx,
+                user.user_id,
+                "osu! stable leaderboard version mismatch.",
+            )
+            .await;
         });
     }
 
     let beatmap = match beatmaps::fetch_by_md5(&args.beatmap_md5).await {
         Ok(beatmap) => beatmap,
-        Err(AppError::BeatmapsNotFound) => return match beatmaps::file_name_exists(ctx, &args.file_name).await? {
-            true => Ok(UserLeaderboardView::Status(RankedStatus::UpdateAvailable)),
-            false => Ok(UserLeaderboardView::Status(RankedStatus::NotSubmitted)),
-        },
+        Err(AppError::BeatmapsNotFound) => {
+            return match beatmaps::file_name_exists(ctx, &args.file_name).await? {
+                true => Ok(UserLeaderboardView::Status(RankedStatus::UpdateAvailable)),
+                false => Ok(UserLeaderboardView::Status(RankedStatus::NotSubmitted)),
+            };
+        }
         Err(e) => return Err(e),
     };
 
@@ -68,7 +77,8 @@ pub async fn fetch_leaderboard_view(
     // Remove any invalid mods for this game mode (e.g. Relax on Mania)
     let sanitized_mods = args.mods.sanitize_for_mode(args.mode);
     let modded_gamemode = ModdedGamemode::from_mode_and_mods(args.mode, sanitized_mods);
-    let display_pp_as_score = modded_gamemode.mode_mod() != GamemodeMod::Vanilla || user.vanilla_pp_leaderboards;
+    let display_pp_as_score =
+        modded_gamemode.mode_mod() != GamemodeMod::Vanilla || user.vanilla_pp_leaderboards;
 
     let filter = match args.leaderboard_type {
         LeaderboardType::Global | LeaderboardType::Local => LeaderboardFilter::None,
@@ -76,11 +86,13 @@ pub async fn fetch_leaderboard_view(
         LeaderboardType::Friends => {
             let friends = users::fetch_user_friends(ctx, user.user_id).await?;
             LeaderboardFilter::Friends(friends)
-        },
+        }
         LeaderboardType::Country => LeaderboardFilter::Country(&user.country),
     };
 
-    let leaderboard_size = user.privileges.is_donor()
+    let leaderboard_size = user
+        .privileges
+        .is_donor()
         .then_some(user.leaderboard_size)
         .flatten()
         .unwrap_or_else(|| AppSettings::get().leaderboard_size);
@@ -92,36 +104,44 @@ pub async fn fetch_leaderboard_view(
         display_pp_as_score,
         &filter,
         leaderboard_size,
-    ).await?;
+    )
+    .await?;
 
     // Fewer scores than requested means there is nothing left that has not been fetched already
     let is_complete = leaderboard_scores.len() < leaderboard_size as usize;
-    let personal_best = leaderboard_scores.iter()
+    let personal_best = leaderboard_scores
+        .iter()
         .find(|score| score.user_id == user.user_id)
         .cloned();
 
     let personal_best = match personal_best {
-        None if !is_complete => scores::fetch_leaderboard_personal_best(
-            ctx,
-            user.user_id,
-            &beatmap.beatmap_md5,
-            modded_gamemode,
-            display_pp_as_score,
-            &filter,
-        ).await?,
+        None if !is_complete => {
+            scores::fetch_leaderboard_personal_best(
+                ctx,
+                user.user_id,
+                &beatmap.beatmap_md5,
+                modded_gamemode,
+                display_pp_as_score,
+                &filter,
+            )
+            .await?
+        }
         personal_best => personal_best,
     };
 
     let total_scores = match is_complete {
         true => leaderboard_scores.len() as _,
-        false => scores::fetch_leaderboard_scores_count(
-            ctx,
-            user.user_id,
-            &beatmap.beatmap_md5,
-            modded_gamemode,
-            display_pp_as_score,
-            &filter,
-        ).await?,
+        false => {
+            scores::fetch_leaderboard_scores_count(
+                ctx,
+                user.user_id,
+                &beatmap.beatmap_md5,
+                modded_gamemode,
+                display_pp_as_score,
+                &filter,
+            )
+            .await?
+        }
     };
 
     Ok(UserLeaderboardView::ScoresView(UserLeaderboardScoresView {
@@ -459,7 +479,10 @@ pub async fn submit(
     ctx.spawn(async move {
         _ = replays::save_replay(&task_ctx, score.score_id, args.replay_data.unwrap()).await;
         if let Err(e) = scores::publish_score_event(&task_ctx, event_payload).await {
-            error!(score_id = score.score_id, "Failed to publish the score submission: {e}");
+            error!(
+                score_id = score.score_id,
+                "Failed to publish the score submission: {e}"
+            );
         }
     });
 

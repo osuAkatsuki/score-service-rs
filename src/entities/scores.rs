@@ -99,7 +99,9 @@ impl LeaderboardFilter<'_> {
     pub fn query_part(&self) -> String {
         match self {
             LeaderboardFilter::None => String::new(),
-            LeaderboardFilter::Friends(friends) => format!("AND s.userid IN (?{})", ", ?".repeat(friends.len())),
+            LeaderboardFilter::Friends(friends) => {
+                format!("AND s.userid IN (?{})", ", ?".repeat(friends.len()))
+            }
             LeaderboardFilter::Mods(_) => "AND s.mods = ?".to_owned(),
             LeaderboardFilter::Country(_) => "AND users.country = ?".to_owned(),
         }
@@ -231,8 +233,7 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for Score {
             performance: raw_score.pp,
             status: ScoreStatus::from(raw_score.completed),
             score_md5: raw_score.checksum,
-            created_at: DateTime::from_timestamp(raw_score.time as _, 0)
-                .unwrap_or_default(),
+            created_at: DateTime::from_timestamp(raw_score.time as _, 0).unwrap_or_default(),
         })
     }
 }
@@ -260,8 +261,7 @@ impl sqlx::FromRow<'_, sqlx::mysql::MySqlRow> for LeaderboardScore {
                 count_miss: raw_score.count_miss as _,
             },
             performance: raw_score.pp,
-            created_at: DateTime::from_timestamp(raw_score.time as _, 0)
-                .unwrap_or_default(),
+            created_at: DateTime::from_timestamp(raw_score.time as _, 0).unwrap_or_default(),
         })
     }
 }

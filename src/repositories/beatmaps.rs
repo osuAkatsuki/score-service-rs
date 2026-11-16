@@ -26,10 +26,7 @@ pub async fn update_rating(
     Ok(())
 }
 
-pub async fn file_name_exists(
-    ctx: &RequestContext,
-    file_name: &str,
-) -> sqlx::Result<bool> {
+pub async fn file_name_exists(ctx: &RequestContext, file_name: &str) -> sqlx::Result<bool> {
     sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM beatmaps WHERE file_name = ?)")
         .bind(file_name)
         .fetch_one(&ctx.db)

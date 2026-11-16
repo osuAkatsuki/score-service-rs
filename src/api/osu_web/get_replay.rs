@@ -33,7 +33,9 @@ pub async fn handler(ctx: RequestContext, Query(args): Query<GetReplayArgs>) -> 
 pub async fn download(ctx: RequestContext, Path(score_id): Path<i64>) -> Response {
     match replays::fetch_replay_file(&ctx, score_id).await {
         Ok(replay_file) => replay_file.into_response(),
-        Err(AppError::ScoresNotFound) => (StatusCode::NOT_FOUND, "Score not found!").into_response(),
+        Err(AppError::ScoresNotFound) => {
+            (StatusCode::NOT_FOUND, "Score not found!").into_response()
+        }
         Err(AppError::ReplaysNotFound) => {
             (StatusCode::NOT_FOUND, "Replay not found!").into_response()
         }

@@ -1,5 +1,5 @@
-use serde_repr::Deserialize_repr;
 use crate::entities::mods::Mods;
+use serde_repr::Deserialize_repr;
 
 #[repr(u8)]
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Deserialize_repr)]

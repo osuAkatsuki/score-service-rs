@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use crate::achievements::Achievement;
 use crate::common::amqp::AmqpPublisher;
 use crate::common::redis_pool::RedisPool;
 use sqlx::{MySql, Pool};
+use std::sync::Arc;
 use tokio_util::task::TaskTracker;
 
 #[derive(Clone)]

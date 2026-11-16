@@ -108,10 +108,7 @@ pub async fn publish_ban_event(ctx: &RequestContext, user_id: i64) -> anyhow::Re
     Ok(())
 }
 
-pub async fn fetch_user_friends(
-    ctx: &RequestContext,
-    user_id: i64,
-) -> sqlx::Result<Vec<i32>> {
+pub async fn fetch_user_friends(ctx: &RequestContext, user_id: i64) -> sqlx::Result<Vec<i32>> {
     sqlx::query_scalar("SELECT user2 FROM users_relationships WHERE user1 = ?")
         .bind(user_id)
         .fetch_all(&ctx.db)
@@ -206,12 +203,18 @@ mod tests {
 
     #[test]
     fn keeps_the_text_latin1_can_store() {
-        assert_eq!(to_latin1("Motörhead - Ace of Spades [Übung]"), "Motörhead - Ace of Spades [Übung]");
+        assert_eq!(
+            to_latin1("Motörhead - Ace of Spades [Übung]"),
+            "Motörhead - Ace of Spades [Übung]"
+        );
     }
 
     #[test]
     fn replaces_the_characters_latin1_can_not_store() {
-        assert_eq!(to_latin1("xi - FREEDOM DiVE↓ [FOUR DIMENSIONS]"), "xi - FREEDOM DiVE? [FOUR DIMENSIONS]");
+        assert_eq!(
+            to_latin1("xi - FREEDOM DiVE↓ [FOUR DIMENSIONS]"),
+            "xi - FREEDOM DiVE? [FOUR DIMENSIONS]"
+        );
         assert_eq!(to_latin1("ぼくらの16bit戦争"), "????16bit??");
         assert_eq!(to_latin1("\u{80}\u{9f}"), "??");
     }
