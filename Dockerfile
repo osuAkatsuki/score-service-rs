@@ -23,7 +23,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends openssl ca-certificates python3-pip git && \
     apt-get autoremove -y && \
     apt-get clean
-RUN pip install --break-system-packages git+https://github.com/osuAkatsuki/akatsuki-cli
+# Pinned so that cached layers and fresh builds install the same version,
+# bump the commit to pick up changes
+RUN pip install --break-system-packages git+https://github.com/osuAkatsuki/akatsuki-cli@5420cb6ebf58a4ac6e06feeac853c3ebe68c7836
 
 WORKDIR /app
 COPY --from=builder /app/target/release/score-service /app
