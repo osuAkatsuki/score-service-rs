@@ -204,8 +204,8 @@ pub async fn submit(
     if uninstall_id_hash != args.client_info.uninstall_md5 {
         warn!(
             user_id = user.user_id,
-            client_hash_disk_signature = args.client_info.uninstall_md5,
-            submitted_disk_signature = uninstall_id_hash,
+            client_hash_uninstall_hash = args.client_info.uninstall_md5,
+            submitted_uninstall_hash = uninstall_id_hash,
             "Submitted score with uninstall hash mismatch"
         );
         ctx.spawn(async move {
