@@ -16,6 +16,7 @@ use simple_rijndael::Errors as RijndaelError;
 use simple_rijndael::impls::RijndaelCbc;
 use simple_rijndael::paddings::Padding;
 use std::str::FromStr;
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct SubmitScoreArgs {
@@ -85,9 +86,33 @@ bitflags! {
     }
 }
 
+/// The errors the client understands in response to a score submission.
+#[derive(Debug)]
+pub enum ScoreSubmissionError {
+    /// Makes the client submit the score again
+    Retry,
+    InvalidUser,
+    InvalidPassword,
+    UserRestricted,
+    UnrankedBeatmap,
+    /// Understood by the client, but never sent yet
+    VersionTooOld,
+    Disallowed,
+    /// Understood by the client, but never sent yet
+    Disabled,
+}
+
 #[derive(Debug)]
 pub enum ScoreSubmissionResult {
+    // An alias for Err(ScoreSubmissionError::Disallowed)
     Ok,
+    Err(ScoreSubmissionError),
+    /// The score was stored, but there are no rankings to show for it (yet).
+    /// The client opens its ranking panel with every column left blank.
+    EmptyCharts {
+        beatmap: Box<Beatmap>,
+        score_id: i64,
+    },
     Charts(Box<SubmissionCharts>),
 }
 
@@ -102,10 +127,36 @@ pub struct SubmissionCharts {
     pub achievements: Vec<Achievement>,
 }
 
+impl ScoreSubmissionError {
+    pub const fn osu_format(&self) -> &'static str {
+        match self {
+            ScoreSubmissionError::Retry => "",
+            ScoreSubmissionError::InvalidUser => "error: nouser",
+            ScoreSubmissionError::InvalidPassword => "error: pass",
+            ScoreSubmissionError::UserRestricted => "error: ban",
+            ScoreSubmissionError::UnrankedBeatmap => "error: beatmap",
+            ScoreSubmissionError::VersionTooOld => "error: oldver",
+            ScoreSubmissionError::Disallowed => "error: no",
+            ScoreSubmissionError::Disabled => "error: disabled",
+        }
+    }
+}
+
 impl ScoreSubmissionResult {
     pub fn osu_format(&self) -> String {
         match self {
-            ScoreSubmissionResult::Ok => "ok".to_owned(),
+            ScoreSubmissionResult::Ok => ScoreSubmissionError::Disallowed.osu_format().to_owned(),
+            ScoreSubmissionResult::Err(e) => e.osu_format().to_owned(),
+            ScoreSubmissionResult::EmptyCharts { beatmap, score_id } => {
+                // The client only insists on the beatmap info.
+                // Beatmap Ranking is there to show a tooltip on the pp amount.
+                // Overall Ranking is there for the score id.
+                format!(
+                    "{}\nchartId:beatmap|chartName:Beatmap Ranking|rankBefore:0|ppBefore:|ppAfter:\n\
+                    chartId:overall|chartName:Overall Ranking|onlineScoreId:{score_id}",
+                    beatmap.osu_format()
+                )
+            }
             ScoreSubmissionResult::Charts(charts) => {
                 let SubmissionCharts {
                     beatmap,
@@ -124,14 +175,21 @@ impl ScoreSubmissionResult {
                     .join("/");
 
                 // The beatmap and every chart are on a line of their own.
-                // The client expects the id of the score at the end of the beatmap ranking
-                // and the unlocked achievements at the end of the overall ranking.
+                // The client only reads the id of the score from the overall ranking,
+                // the unlocked achievements are picked up from any chart.
                 format!(
-                    "{beatmap_fmt}|\n|{beatmap_ranking_fmt}|onlineScoreId:{score_id}|\n\
-                    |{overall_ranking_fmt}|achievements-new:{achievements_fmt}"
+                    "{beatmap_fmt}\n{beatmap_ranking_fmt}\n\
+                    {overall_ranking_fmt}|onlineScoreId:{score_id}\
+                    |achievements-new:{achievements_fmt}"
                 )
             }
         }
+    }
+}
+
+impl IntoResponse for ScoreSubmissionError {
+    fn into_response(self) -> Response {
+        self.osu_format().into_response()
     }
 }
 
@@ -433,7 +491,10 @@ fn decrypt(decryptor: &ScoreDecryptor, iv: &[u8], encrypted_b64: &str) -> Servic
     String::from_utf8(decrypted).map_err(|_| AppError::MalformedRequest)
 }
 
-fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArgs> {
+fn decrypt_score_form(
+    form: ScoreSubmissionForm,
+    anticheat_token: Option<String>,
+) -> ServiceResult<SubmitScoreArgs> {
     let decryption_key = format!("osu!-scoreburgr---------{}", form.osuver);
     let iv = base64_simd::forgiving_decode_to_vec(form.iv.as_bytes())
         .map_err(|_| AppError::MalformedRequest)?;
@@ -477,18 +538,18 @@ fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArg
         score_time,
         unique_ids,
         client_info,
+        anticheat_token,
         // visual_settings,
         beatmap_md5: form.bmk,
         password_md5: form.pass,
         osu_version: form.osuver,
         replay_data: form.replay,
-        anticheat_token: form.token,
         storyboard_md5: form.sbk,
     })
 }
 
 impl<S: Send + Sync> FromRequest<S> for SubmitScoreArgs {
-    type Rejection = AppError;
+    type Rejection = ScoreSubmissionError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         // The client sends its anticheat token next to the form
@@ -499,12 +560,15 @@ impl<S: Send + Sync> FromRequest<S> for SubmitScoreArgs {
             .map(str::to_owned);
 
         match <Multipart<ScoreSubmissionForm>>::from_request(req, state).await {
-            Ok(form) => {
-                let mut args = decrypt_score_form(form.0)?;
-                args.anticheat_token = anticheat_token.or(args.anticheat_token);
-                Ok(args)
-            }
-            Err(_) => Err(AppError::MalformedRequest),
+            Ok(form) => match decrypt_score_form(form.0, anticheat_token) {
+                Ok(args) => Ok(args),
+                Err(AppError::Unexpected) => Err(ScoreSubmissionError::Retry),
+                Err(_) => {
+                    warn!("Received malformed score submission request");
+                    Err(ScoreSubmissionError::Disallowed)
+                }
+            },
+            Err(_) => Err(ScoreSubmissionError::Disallowed),
         }
     }
 }
@@ -526,7 +590,6 @@ pub struct ScoreSubmissionForm {
     pub i: Option<Bytes>,
     pub iv: String,
     pub replay: Option<Bytes>,
-    pub token: Option<String>,
 }
 
 impl FromMultipart for ScoreSubmissionForm {
@@ -545,7 +608,6 @@ impl FromMultipart for ScoreSubmissionForm {
         let mut i = None;
         let mut iv = None;
         let mut replay = None;
-        let mut token = None;
 
         while let Some(field) = form.next_field().await? {
             let name = field.name();
@@ -567,7 +629,6 @@ impl FromMultipart for ScoreSubmissionForm {
                 Some("s") => s = Some(String::from_field(field).await?),
                 Some("i") => i = Some(Bytes::from_field(field).await?),
                 Some("iv") => iv = Some(String::from_field(field).await?),
-                Some("token") => token = Some(String::from_field(field).await?),
                 _ => continue,
             }
         }
@@ -587,7 +648,6 @@ impl FromMultipart for ScoreSubmissionForm {
             i,
             replay,
             sbk,
-            token,
         })
     }
 }
@@ -670,13 +730,12 @@ mod tests {
             i: None,
             iv: base64_simd::STANDARD.encode_to_string(&iv),
             replay: Some(Bytes::from_static(b"replay")),
-            token: None,
         }
     }
 
     #[test]
     fn decrypts_the_score_of_a_submission() {
-        let args = decrypt_score_form(form(SCORE_PAYLOAD)).unwrap();
+        let args = decrypt_score_form(form(SCORE_PAYLOAD), None).unwrap();
 
         assert_eq!(args.score.username, "cmyui");
         assert!(args.score.is_donor_flag);
@@ -710,7 +769,7 @@ mod tests {
     #[test]
     fn reads_anticheat_flags_from_the_padding_of_the_version() {
         let payload = format!("{SCORE_PAYLOAD}  ");
-        let args = decrypt_score_form(form(&payload)).unwrap();
+        let args = decrypt_score_form(form(&payload), None).unwrap();
         assert_eq!(args.score.stats.osu_version, "20231111");
         assert_eq!(args.score.stats.score_flags, ScoreFlags::SpeedHackDetected);
     }
@@ -718,7 +777,7 @@ mod tests {
     #[test]
     fn rejects_scores_with_missing_fields() {
         let payload = "a5b99395a42bd55bc5eb1d2411cbdf8b:cmyui:checksum:300:10:5";
-        let result = decrypt_score_form(form(payload));
+        let result = decrypt_score_form(form(payload), None);
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
@@ -726,7 +785,7 @@ mod tests {
     fn rejects_forms_that_were_not_encrypted_for_their_version() {
         let mut form = form(SCORE_PAYLOAD);
         form.osuver = "20200101".to_owned();
-        let result = decrypt_score_form(form);
+        let result = decrypt_score_form(form, None);
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
@@ -734,7 +793,7 @@ mod tests {
     fn rejects_forms_without_a_score() {
         let mut form = form(SCORE_PAYLOAD);
         form.score = String::new();
-        let result = decrypt_score_form(form);
+        let result = decrypt_score_form(form, None);
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
@@ -748,6 +807,20 @@ mod tests {
 
         // A full block of padding follows data that already fills its blocks
         assert_eq!(padding.encode(vec![1; 32]).len(), 64);
+    }
+
+    #[test]
+    fn formats_empty_charts_with_only_what_the_client_requires() {
+        let result = ScoreSubmissionResult::EmptyCharts {
+            beatmap: Box::new(beatmap()),
+            score_id: 1001,
+        };
+
+        let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
+            |approvedDate:2023-11-14 22:13:20\n\
+            chartId:beatmap|chartName:Beatmap Ranking|rankBefore:0|ppBefore:|ppAfter:\n\
+            chartId:overall|chartName:Overall Ranking|onlineScoreId:1001";
+        assert_eq!(result.osu_format(), expected);
     }
 
     #[test]
@@ -781,18 +854,13 @@ mod tests {
         }));
 
         let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
-            |approvedDate:2023-11-14 22:13:20|\n\
-            |chartId:beatmap|chartUrl:https://osu.akatsuki.gg/beatmapsets/1|chartName:Beatmap Ranking\
-            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5|onlineScoreId:1001|\n\
-            |chartId:overall|chartUrl:https://akatsuki.gg/u/1001|chartName:Overall Ranking\
-            |ppBefore:100|ppAfter:120\
+            |approvedDate:2023-11-14 22:13:20\n\
+            chartId:beatmap|chartUrl:https://osu.akatsuki.gg/beatmapsets/1|chartName:Beatmap Ranking\
+            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5\n\
+            chartId:overall|chartUrl:https://akatsuki.gg/u/1001|chartName:Overall Ranking\
+            |ppBefore:100|ppAfter:120|onlineScoreId:1001\
             |achievements-new:osu-skill-pass-1+Rising Star+Can't go forward without the first steps.\
             /all-intro-hidden+Blindsight+I can see just perfectly";
         assert_eq!(result.osu_format(), expected);
-    }
-
-    #[test]
-    fn formats_submissions_without_charts_as_ok() {
-        assert_eq!(ScoreSubmissionResult::Ok.osu_format(), "ok");
     }
 }
