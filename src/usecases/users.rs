@@ -29,7 +29,7 @@ async fn verify_password(password: &str, password_hash: &str) -> ServiceResult<b
 pub async fn fetch_one_by_username(ctx: &RequestContext, username: &str) -> ServiceResult<User> {
     let username_safe = make_safe_username(username);
     match users::fetch_one_by_username_safe(ctx, &username_safe).await {
-        Ok(user) => User::try_from(user),
+        Ok(user) => Ok(User::from(user)),
         Err(sqlx::Error::RowNotFound) => Err(AppError::UsersNotFound),
         Err(e) => unexpected(e),
     }
@@ -51,7 +51,7 @@ pub async fn fetch_one_and_auth(
         return Err(AppError::UsersInvalidCredentials);
     }
 
-    let user = User::try_from(user)?;
+    let user = User::from(user);
     // This check is exclusive to score-service, because none of the osu_web controllers
     // should serve unverified users or users that cannot log in.
     if !user.privileges.can_login() || user.privileges.is_pending_verification() {

@@ -22,7 +22,6 @@ pub struct User {
     pub whitelist: i8,
     pub clan_id: i64,
     pub userpage_allowed: bool,
-    pub userpage_content: Option<Vec<u8>>,
     pub freeze_reason: Option<String>,
     pub country: String,
     pub can_custom_badge: bool,

@@ -1,4 +1,3 @@
-use crate::common::error::AppError;
 use crate::entities::mode::{GamemodeMod, ModdedGamemode};
 use crate::entities::users::User as UserEntity;
 use crate::models::privileges::Privileges;
@@ -43,7 +42,6 @@ pub struct User {
     pub whitelist: Whitelist,
     pub clan_id: i64,
     pub userpage_allowed: bool,
-    pub userpage_content: Option<String>,
     pub freeze_reason: Option<String>,
     pub country: String,
     pub custom_badge_allowed: bool,
@@ -75,13 +73,8 @@ impl User {
     }
 }
 
-impl TryFrom<UserEntity> for User {
-    type Error = AppError;
-    fn try_from(value: UserEntity) -> Result<Self, Self::Error> {
-        let userpage_content = match value.userpage_content {
-            Some(userpage_content) => Some(String::from_utf8(userpage_content)?),
-            None => None,
-        };
+impl From<UserEntity> for User {
+    fn from(value: UserEntity) -> Self {
         let silence_end = match value.silence_end {
             None => None,
             Some(silence_end) => match <DateTime<Utc>>::from_timestamp(silence_end, 0) {
@@ -90,9 +83,8 @@ impl TryFrom<UserEntity> for User {
                 Some(silence_end) => Some(silence_end),
             },
         };
-        Ok(Self {
+        Self {
             silence_end,
-            userpage_content,
             user_id: value.id,
             country: value.country,
             username: value.username,
@@ -119,7 +111,7 @@ impl TryFrom<UserEntity> for User {
             vanilla_pp_leaderboards: value.vanilla_pp_leaderboards,
             leaderboard_size: value.leaderboard_size,
             has_free_username_change: value.has_free_username_change,
-        })
+        }
     }
 }
 
