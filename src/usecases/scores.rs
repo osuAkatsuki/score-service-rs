@@ -454,6 +454,7 @@ pub async fn submit(
         user_id = user.user_id,
         score_id = score.score_id,
         beatmap_md5 = beatmap.beatmap_md5,
+        score_md5 = score.score_md5,
         "{} has submitted a score",
         user.username,
     );
