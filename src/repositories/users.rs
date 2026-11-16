@@ -10,18 +10,12 @@ pub async fn fetch_one_by_username_safe(
     ctx: &RequestContext,
     username_safe: &str,
 ) -> sqlx::Result<User> {
-    const QUERY: &str = r#"
-SELECT
-    id, username, username_safe, password_md5, email,
-    register_datetime, latest_activity, silence_end, silence_reason,
-    privileges, donor_expire, frozen, notes, ban_datetime,
-    previous_overwrite, whitelist, clan_id, userpage_allowed,
-    freeze_reason, country, username_aka, can_custom_badge,
-    show_custom_badge, custom_badge_icon, custom_badge_name,
-    favourite_mode, play_style, vanilla_pp_leaderboards,
-    leaderboard_size, has_free_username_change
-FROM users
-WHERE username_safe = ?"#;
+    const QUERY: &str = concat!(
+        "SELECT id, username, password_md5, privileges, whitelist, ",
+        "country, vanilla_pp_leaderboards, leaderboard_size ",
+        "FROM users ",
+        "WHERE username_safe = ?",
+    );
     sqlx::query_as(QUERY)
         .bind(username_safe)
         .fetch_one(&ctx.db)
