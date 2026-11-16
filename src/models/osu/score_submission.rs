@@ -16,6 +16,7 @@ use simple_rijndael::Errors as RijndaelError;
 use simple_rijndael::impls::RijndaelCbc;
 use simple_rijndael::paddings::Padding;
 use std::str::FromStr;
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct SubmitScoreArgs {
@@ -183,6 +184,12 @@ impl ScoreSubmissionResult {
                 )
             }
         }
+    }
+}
+
+impl IntoResponse for ScoreSubmissionError {
+    fn into_response(self) -> Response {
+        self.osu_format().into_response()
     }
 }
 
@@ -484,7 +491,10 @@ fn decrypt(decryptor: &ScoreDecryptor, iv: &[u8], encrypted_b64: &str) -> Servic
     String::from_utf8(decrypted).map_err(|_| AppError::MalformedRequest)
 }
 
-fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArgs> {
+fn decrypt_score_form(
+    form: ScoreSubmissionForm,
+    anticheat_token: Option<String>,
+) -> ServiceResult<SubmitScoreArgs> {
     let decryption_key = format!("osu!-scoreburgr---------{}", form.osuver);
     let iv = base64_simd::forgiving_decode_to_vec(form.iv.as_bytes())
         .map_err(|_| AppError::MalformedRequest)?;
@@ -528,18 +538,18 @@ fn decrypt_score_form(form: ScoreSubmissionForm) -> ServiceResult<SubmitScoreArg
         score_time,
         unique_ids,
         client_info,
+        anticheat_token,
         // visual_settings,
         beatmap_md5: form.bmk,
         password_md5: form.pass,
         osu_version: form.osuver,
         replay_data: form.replay,
-        anticheat_token: form.token,
         storyboard_md5: form.sbk,
     })
 }
 
 impl<S: Send + Sync> FromRequest<S> for SubmitScoreArgs {
-    type Rejection = AppError;
+    type Rejection = ScoreSubmissionError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         // The client sends its anticheat token next to the form
@@ -550,12 +560,15 @@ impl<S: Send + Sync> FromRequest<S> for SubmitScoreArgs {
             .map(str::to_owned);
 
         match <Multipart<ScoreSubmissionForm>>::from_request(req, state).await {
-            Ok(form) => {
-                let mut args = decrypt_score_form(form.0)?;
-                args.anticheat_token = anticheat_token.or(args.anticheat_token);
-                Ok(args)
-            }
-            Err(_) => Err(AppError::MalformedRequest),
+            Ok(form) => match decrypt_score_form(form.0, anticheat_token) {
+                Ok(args) => Ok(args),
+                Err(AppError::Unexpected) => Err(ScoreSubmissionError::Retry),
+                Err(_) => {
+                    warn!("Received malformed score submission request");
+                    Err(ScoreSubmissionError::Disallowed)
+                }
+            },
+            Err(_) => Err(ScoreSubmissionError::Disallowed),
         }
     }
 }
@@ -577,7 +590,6 @@ pub struct ScoreSubmissionForm {
     pub i: Option<Bytes>,
     pub iv: String,
     pub replay: Option<Bytes>,
-    pub token: Option<String>,
 }
 
 impl FromMultipart for ScoreSubmissionForm {
@@ -596,7 +608,6 @@ impl FromMultipart for ScoreSubmissionForm {
         let mut i = None;
         let mut iv = None;
         let mut replay = None;
-        let mut token = None;
 
         while let Some(field) = form.next_field().await? {
             let name = field.name();
@@ -618,7 +629,6 @@ impl FromMultipart for ScoreSubmissionForm {
                 Some("s") => s = Some(String::from_field(field).await?),
                 Some("i") => i = Some(Bytes::from_field(field).await?),
                 Some("iv") => iv = Some(String::from_field(field).await?),
-                Some("token") => token = Some(String::from_field(field).await?),
                 _ => continue,
             }
         }
@@ -638,7 +648,6 @@ impl FromMultipart for ScoreSubmissionForm {
             i,
             replay,
             sbk,
-            token,
         })
     }
 }
@@ -721,13 +730,12 @@ mod tests {
             i: None,
             iv: base64_simd::STANDARD.encode_to_string(&iv),
             replay: Some(Bytes::from_static(b"replay")),
-            token: None,
         }
     }
 
     #[test]
     fn decrypts_the_score_of_a_submission() {
-        let args = decrypt_score_form(form(SCORE_PAYLOAD)).unwrap();
+        let args = decrypt_score_form(form(SCORE_PAYLOAD), None).unwrap();
 
         assert_eq!(args.score.username, "cmyui");
         assert!(args.score.is_donor_flag);
@@ -761,7 +769,7 @@ mod tests {
     #[test]
     fn reads_anticheat_flags_from_the_padding_of_the_version() {
         let payload = format!("{SCORE_PAYLOAD}  ");
-        let args = decrypt_score_form(form(&payload)).unwrap();
+        let args = decrypt_score_form(form(&payload), None).unwrap();
         assert_eq!(args.score.stats.osu_version, "20231111");
         assert_eq!(args.score.stats.score_flags, ScoreFlags::SpeedHackDetected);
     }
@@ -769,7 +777,7 @@ mod tests {
     #[test]
     fn rejects_scores_with_missing_fields() {
         let payload = "a5b99395a42bd55bc5eb1d2411cbdf8b:cmyui:checksum:300:10:5";
-        let result = decrypt_score_form(form(payload));
+        let result = decrypt_score_form(form(payload), None);
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
@@ -777,7 +785,7 @@ mod tests {
     fn rejects_forms_that_were_not_encrypted_for_their_version() {
         let mut form = form(SCORE_PAYLOAD);
         form.osuver = "20200101".to_owned();
-        let result = decrypt_score_form(form);
+        let result = decrypt_score_form(form, None);
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
@@ -785,7 +793,7 @@ mod tests {
     fn rejects_forms_without_a_score() {
         let mut form = form(SCORE_PAYLOAD);
         form.score = String::new();
-        let result = decrypt_score_form(form);
+        let result = decrypt_score_form(form, None);
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
