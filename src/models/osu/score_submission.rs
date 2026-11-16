@@ -106,6 +106,12 @@ pub enum ScoreSubmissionResult {
     // An alias for Err(ScoreSubmissionError::Disallowed)
     Ok,
     Err(ScoreSubmissionError),
+    /// The score was stored, but there are no rankings to show for it (yet).
+    /// The client opens its ranking panel with every column left blank.
+    EmptyCharts {
+        beatmap: Box<Beatmap>,
+        score_id: i64,
+    },
     Charts(Box<SubmissionCharts>),
 }
 
@@ -140,6 +146,15 @@ impl ScoreSubmissionResult {
         match self {
             ScoreSubmissionResult::Ok => ScoreSubmissionError::Disallowed.osu_format().to_owned(),
             ScoreSubmissionResult::Err(e) => e.osu_format().to_owned(),
+            ScoreSubmissionResult::EmptyCharts { beatmap, score_id } => {
+                // The client only insists on the beatmap line. Of a chart it needs the id and
+                // the name, every ranking it is not given is drawn as a dash.
+                // The id of the score is only read from the overall ranking.
+                format!(
+                    "{}\nchartId:overall|chartName:Overall Ranking|onlineScoreId:{score_id}",
+                    beatmap.osu_format()
+                )
+            }
             ScoreSubmissionResult::Charts(charts) => {
                 let SubmissionCharts {
                     beatmap,
@@ -782,6 +797,19 @@ mod tests {
 
         // A full block of padding follows data that already fills its blocks
         assert_eq!(padding.encode(vec![1; 32]).len(), 64);
+    }
+
+    #[test]
+    fn formats_empty_charts_with_only_what_the_client_requires() {
+        let result = ScoreSubmissionResult::EmptyCharts {
+            beatmap: Box::new(beatmap()),
+            score_id: 1001,
+        };
+
+        let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
+            |approvedDate:2023-11-14 22:13:20\n\
+            chartId:overall|chartName:Overall Ranking|onlineScoreId:1001";
+        assert_eq!(result.osu_format(), expected);
     }
 
     #[test]

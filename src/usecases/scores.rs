@@ -392,7 +392,11 @@ pub async fn submit(
         // The client submits the replay only once, so it is stored even though the score is worth nothing yet
         store_replay_and_publish(ctx, args, score.score_id, user.user_id, modded_gamemode);
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
-        return Ok(ScoreSubmissionResult::Ok);
+        
+        return Ok(ScoreSubmissionResult::EmptyCharts {
+            beatmap: Box::new(beatmap),
+            score_id: score.score_id,
+        });
     };
     let personal_best =
         scores::fetch_user_best(ctx, user.user_id, &beatmap.beatmap_md5, modded_gamemode).await?;
