@@ -67,8 +67,12 @@ pub async fn update(
         update_params.push(format!("{0} = {0}+1", incr_grade.column_name()));
     }
 
+    // The columns are unsigned, taking away from a count of zero would fail the whole update
     if let Some(decr_grade) = update.decrement_grade {
-        update_params.push(format!("{0} = {0}-1", decr_grade.column_name()));
+        update_params.push(format!(
+            "{0} = IF({0} > 0, {0}-1, 0)",
+            decr_grade.column_name()
+        ));
     }
 
     if let Some(max_combo) = update.max_combo {
