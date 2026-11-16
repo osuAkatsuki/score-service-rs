@@ -223,7 +223,10 @@ mod tests {
     fn plays_without_any_hits_have_no_accuracy() {
         let accuracy = accuracy(0, 0, 0, 0, 0, 0);
         assert_eq!(accuracy.as_percent(Gamemode::Standard), 0.0);
-        assert_eq!(accuracy.grade(Gamemode::Standard, Mods::None), ScoreGrade::D);
+        assert_eq!(
+            accuracy.grade(Gamemode::Standard, Mods::None),
+            ScoreGrade::D
+        );
     }
 
     #[test]
@@ -239,14 +242,23 @@ mod tests {
     fn grades_standard_plays_by_their_hit_ratios() {
         let perfect = accuracy(100, 0, 0, 0, 0, 0);
         assert_eq!(perfect.grade(Gamemode::Standard, Mods::None), ScoreGrade::X);
-        assert_eq!(perfect.grade(Gamemode::Standard, Mods::Hidden), ScoreGrade::XH);
+        assert_eq!(
+            perfect.grade(Gamemode::Standard, Mods::Hidden),
+            ScoreGrade::XH
+        );
 
         let no_miss = accuracy(95, 5, 0, 0, 0, 0);
         assert_eq!(no_miss.grade(Gamemode::Standard, Mods::None), ScoreGrade::S);
-        assert_eq!(no_miss.grade(Gamemode::Standard, Mods::Flashlight), ScoreGrade::SH);
+        assert_eq!(
+            no_miss.grade(Gamemode::Standard, Mods::Flashlight),
+            ScoreGrade::SH
+        );
 
         let one_miss = accuracy(95, 4, 0, 0, 0, 1);
-        assert_eq!(one_miss.grade(Gamemode::Standard, Mods::None), ScoreGrade::A);
+        assert_eq!(
+            one_miss.grade(Gamemode::Standard, Mods::None),
+            ScoreGrade::A
+        );
 
         let sloppy = accuracy(65, 20, 5, 0, 0, 10);
         assert_eq!(sloppy.grade(Gamemode::Standard, Mods::None), ScoreGrade::C);

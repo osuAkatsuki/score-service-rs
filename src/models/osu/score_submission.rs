@@ -217,7 +217,7 @@ impl FromStr for ScoreStatistics {
         let mode = split.next().ok_or(AppError::MalformedRequest)?;
         let client_timestamp = split.next().ok_or(AppError::MalformedRequest)?;
         let osu_version = split.next().ok_or(AppError::MalformedRequest)?;
-        if osu_version.len() < 8 {
+        if osu_version.len() < 8 || !osu_version.is_char_boundary(8) {
             return Err(AppError::MalformedRequest);
         }
 
@@ -771,7 +771,11 @@ mod tests {
                 entries: vec![ChartEntry::new_int("pp", Some(100), 120)],
             },
             achievements: vec![
-                achievement("osu-skill-pass-1", "Rising Star", "Can't go forward without the first steps."),
+                achievement(
+                    "osu-skill-pass-1",
+                    "Rising Star",
+                    "Can't go forward without the first steps.",
+                ),
                 achievement("all-intro-hidden", "Blindsight", "I can see just perfectly"),
             ],
         }));

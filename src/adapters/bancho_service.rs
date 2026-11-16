@@ -1,8 +1,8 @@
-use std::sync::LazyLock;
-use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use crate::common::error::ServiceResult;
 use crate::settings::AppSettings;
+use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 fn make_url(endpoint: &str) -> String {
     let settings = AppSettings::get();

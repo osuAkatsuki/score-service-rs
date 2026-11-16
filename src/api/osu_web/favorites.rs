@@ -37,13 +37,8 @@ pub async fn add(
     ctx: RequestContext,
     Query(args): Query<AddFavouriteArgs>,
 ) -> ServiceResult<&'static str> {
-    let added = favourites::add(
-        &ctx,
-        &args.username,
-        &args.password_md5,
-        args.beatmapset_id,
-    )
-    .await?;
+    let added =
+        favourites::add(&ctx, &args.username, &args.password_md5, args.beatmapset_id).await?;
     match added {
         true => Ok("Added favourite!"),
         false => Ok("You've already favourited this beatmap!"),

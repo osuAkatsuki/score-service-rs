@@ -13,7 +13,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Describes where the broker is and how to log into it.
 /// The parts are not joined into a URL, in which a password could be mistaken for a part of the address.
 pub fn broker_uri(user: &str, password: &str, host: &str, port: &str) -> anyhow::Result<AMQPUri> {
-    let port = port.parse().context("The port of the AMQP broker is invalid")?;
+    let port = port
+        .parse()
+        .context("The port of the AMQP broker is invalid")?;
     Ok(AMQPUri {
         authority: AMQPAuthority {
             userinfo: AMQPUserInfo {
@@ -133,7 +135,13 @@ mod tests {
             write_method(&mut client, 0, (10, 10), start).await;
             read_method(&mut client, (10, 11)).await;
             // connection.tune: 2047 channels, frames of up to 128 KiB, no heartbeats
-            write_method(&mut client, 0, (10, 30), b"\x07\xFF\x00\x02\x00\x00\x00\x00").await;
+            write_method(
+                &mut client,
+                0,
+                (10, 30),
+                b"\x07\xFF\x00\x02\x00\x00\x00\x00",
+            )
+            .await;
             read_method(&mut client, (10, 31)).await;
             let open = read_method(&mut client, (10, 40)).await;
             let vhost = read_short_string(&open);
@@ -224,7 +232,10 @@ mod tests {
             let publisher = publisher.unwrap();
             assert_eq!(vhost, "/");
 
-            publisher.publish("score_submission", b"first").await.unwrap();
+            publisher
+                .publish("score_submission", b"first")
+                .await
+                .unwrap();
             let (routing_key, body) = FakeBroker::receive(&mut client).await;
             assert_eq!(routing_key, "score_submission");
             assert_eq!(body, b"first");
@@ -247,6 +258,9 @@ mod tests {
 
         // Fails the test instead of hanging in it, should the two wait for each other
         let outage = tokio::time::timeout(Duration::from_secs(10), outage).await;
-        assert!(outage.is_ok(), "The publisher and the broker stopped talking");
+        assert!(
+            outage.is_ok(),
+            "The publisher and the broker stopped talking"
+        );
     }
 }

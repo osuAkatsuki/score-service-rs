@@ -1,5 +1,5 @@
 use crate::api::context::RequestContext;
 
 pub async fn handler(_ctx: RequestContext) {
-    // TODO: Implement osu! client update check
+    // INFO: The osu client should never request this from our server
 }

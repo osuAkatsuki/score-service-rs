@@ -64,9 +64,10 @@ impl UserLeaderboardScoresView {
             .unwrap_or_default();
 
         // The client finds the user's own score by their name, so it must not get a clan tag
-        let scores_fmt = self.scores.iter().map(|score| {
-            score.osu_format(score.user_id != self.user_id, self.display_pp_as_score)
-        });
+        let scores_fmt = self
+            .scores
+            .iter()
+            .map(|score| score.osu_format(score.user_id != self.user_id, self.display_pp_as_score));
 
         [beatmap_fmt, personal_best_fmt]
             .into_iter()
@@ -179,11 +180,12 @@ mod tests {
 
     #[test]
     fn parses_the_query_of_an_osu_client() {
-        let uri: Uri = "/web/osu-osz2-getscores.php?s=0&vv=4&v=1&c=a5b99395a42bd55bc5eb1d2411cbdf8b\
+        let uri: Uri =
+            "/web/osu-osz2-getscores.php?s=0&vv=4&v=1&c=a5b99395a42bd55bc5eb1d2411cbdf8b\
             &f=Kenji+Ninuma+-+DISCO%E2%98%85PRINCE+(peppy)+%5bNormal%5d.osu&m=0&i=1&mods=72\
             &h=&a=0&us=cmyui&ha=5f4dcc3b5aa765d61d8327deb882cf99"
-            .parse()
-            .unwrap();
+                .parse()
+                .unwrap();
         let Query(args) = Query::<FetchLeaderboardArgs>::try_from_uri(&uri).unwrap();
 
         assert_eq!(args.username, "cmyui");

@@ -1,9 +1,9 @@
 use crate::entities::mode::Gamemode;
 use bitflags::bitflags;
+use serde::{Deserialize, Deserializer};
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Error, ErrorKind};
 use std::str::FromStr;
-use serde::{Deserialize, Deserializer};
 
 bitflags! {
     #[derive(Default, Copy, Clone, Eq, PartialEq)]

@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crate::achievements::Achievement;
 use crate::common::amqp::AmqpPublisher;
 use crate::common::axum_ip::IpAddrInfo;
@@ -9,6 +8,7 @@ use axum::extract::FromRequestParts;
 use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
 use sqlx::{MySql, Pool};
+use std::sync::Arc;
 use tokio_util::task::TaskTracker;
 
 #[derive(Clone)]

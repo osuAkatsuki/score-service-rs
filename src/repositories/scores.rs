@@ -3,10 +3,10 @@ use crate::entities::mode::{GamemodeMod, ModdedGamemode};
 use crate::entities::scores::{
     CreateScoreArgs, LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric,
 };
+use crate::settings::AppSettings;
 use chrono::Utc;
 use sqlx::Arguments;
 use sqlx::mysql::MySqlArguments;
-use crate::settings::AppSettings;
 
 pub async fn create(ctx: &RequestContext, args: CreateScoreArgs<'_>) -> sqlx::Result<Score> {
     let CreateScoreArgs {
@@ -379,7 +379,9 @@ pub async fn publish_score_event(
         let payload = args?;
         let settings = AppSettings::get();
         for routing_key in settings.score_submission_routing_keys.iter() {
-            amqp_publisher.publish(routing_key, payload.as_bytes()).await?;
+            amqp_publisher
+                .publish(routing_key, payload.as_bytes())
+                .await?;
         }
     }
 

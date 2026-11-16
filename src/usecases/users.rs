@@ -51,7 +51,14 @@ pub async fn fetch_one_and_auth(
         return Err(AppError::UsersInvalidCredentials);
     }
 
-    User::try_from(user)
+    let user = User::try_from(user)?;
+    // This check is exclusive to score-service, because none of the osu_web controllers
+    // should serve unverified users or users that cannot log in.
+    if !user.privileges.can_login() || user.privileges.is_pending_verification() {
+        Err(AppError::UsersInvalidCredentials)
+    } else {
+        Ok(user)
+    }
 }
 
 pub async fn fetch_username(ctx: &RequestContext, user_id: i64) -> ServiceResult<String> {
@@ -76,7 +83,10 @@ pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> 
     // The note only documents the restriction, which has to be carried out with or without it
     let note = format!("score-service autorestrict: {reason}");
     if let Err(e) = users::add_note(ctx, user_id, &note).await {
-        error!(user_id, reason, "Failed to note down the reason of the restriction: {e}");
+        error!(
+            user_id,
+            reason, "Failed to note down the reason of the restriction: {e}"
+        );
     }
     users::create_restriction_log(ctx, user_id).await?;
     users::publish_ban_event(ctx, user_id).await?;
@@ -106,7 +116,10 @@ pub fn report_missing_anticheat_token(ctx: &RequestContext, user: &User) {
         // Without the note, nothing would keep the message from being sent for every score
         let note = format!("score-service: {MISSING_ANTICHEAT_TOKEN}");
         if let Err(e) = users::add_note(&task_ctx, user_id, &note).await {
-            error!(user_id, "Failed to note down the missing anticheat token: {e}");
+            error!(
+                user_id,
+                "Failed to note down the missing anticheat token: {e}"
+            );
             return;
         }
 
@@ -120,10 +133,7 @@ pub fn report_missing_anticheat_token(ctx: &RequestContext, user: &User) {
     });
 }
 
-pub async fn fetch_user_friends(
-    ctx: &RequestContext,
-    user_id: i64,
-) -> ServiceResult<Vec<i32>> {
+pub async fn fetch_user_friends(ctx: &RequestContext, user_id: i64) -> ServiceResult<Vec<i32>> {
     let friends = users::fetch_user_friends(ctx, user_id).await?;
     Ok(friends)
 }
