@@ -173,11 +173,12 @@ impl ScoreSubmissionResult {
                     .join("/");
 
                 // The beatmap and every chart are on a line of their own.
-                // The client expects the id of the score at the end of the beatmap ranking
-                // and the unlocked achievements at the end of the overall ranking.
+                // The client only reads the id of the score from the overall ranking,
+                // the unlocked achievements are picked up from any chart.
                 format!(
-                    "{beatmap_fmt}|\n|{beatmap_ranking_fmt}|onlineScoreId:{score_id}|\n\
-                    |{overall_ranking_fmt}|achievements-new:{achievements_fmt}"
+                    "{beatmap_fmt}|\n|{beatmap_ranking_fmt}|\n\
+                    |{overall_ranking_fmt}|onlineScoreId:{score_id}\
+                    |achievements-new:{achievements_fmt}"
                 )
             }
         }
@@ -845,9 +846,9 @@ mod tests {
         let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
             |approvedDate:2023-11-14 22:13:20|\n\
             |chartId:beatmap|chartUrl:https://osu.akatsuki.gg/beatmapsets/1|chartName:Beatmap Ranking\
-            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5|onlineScoreId:1001|\n\
+            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5|\n\
             |chartId:overall|chartUrl:https://akatsuki.gg/u/1001|chartName:Overall Ranking\
-            |ppBefore:100|ppAfter:120\
+            |ppBefore:100|ppAfter:120|onlineScoreId:1001\
             |achievements-new:osu-skill-pass-1+Rising Star+Can't go forward without the first steps.\
             /all-intro-hidden+Blindsight+I can see just perfectly";
         assert_eq!(result.osu_format(), expected);
