@@ -151,7 +151,8 @@ impl ScoreSubmissionResult {
                 // the name, every ranking it is not given is drawn as a dash.
                 // The id of the score is only read from the overall ranking.
                 format!(
-                    "{}\nchartId:overall|chartName:Overall Ranking|onlineScoreId:{score_id}",
+                    "{}\nchartId:beatmap|chartName:Beatmap Ranking|rankBefore:0|ppBefore:|ppAfter:\n\
+                    chartId:overall|chartName:Overall Ranking|onlineScoreId:{score_id}",
                     beatmap.osu_format()
                 )
             }
@@ -176,8 +177,8 @@ impl ScoreSubmissionResult {
                 // The client only reads the id of the score from the overall ranking,
                 // the unlocked achievements are picked up from any chart.
                 format!(
-                    "{beatmap_fmt}|\n|{beatmap_ranking_fmt}|\n\
-                    |{overall_ranking_fmt}|onlineScoreId:{score_id}\
+                    "{beatmap_fmt}\n{beatmap_ranking_fmt}\n\
+                    {overall_ranking_fmt}|onlineScoreId:{score_id}\
                     |achievements-new:{achievements_fmt}"
                 )
             }
