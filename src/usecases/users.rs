@@ -103,36 +103,6 @@ pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> 
     Ok(())
 }
 
-/// What the staff gets to read about a client that submits scores without its anticheat token
-const MISSING_ANTICHEAT_TOKEN: &str =
-    "Submitted score without anticheat token (anticheat disabled, or a custom or outdated client).";
-
-/// Lets the staff know that the client of the user leaves out its anticheat token,
-/// with a note about the user and a message in the anticheat logs.
-pub fn report_missing_anticheat_token(ctx: &RequestContext, user: &User) {
-    let task_ctx = ctx.clone();
-    let user_id = user.user_id;
-    ctx.spawn(async move {
-        // Without the note, nothing would keep the message from being sent for every score
-        let note = format!("score-service: {MISSING_ANTICHEAT_TOKEN}");
-        if let Err(e) = users::add_note(&task_ctx, user_id, &note).await {
-            error!(
-                user_id,
-                "Failed to note down the missing anticheat token: {e}"
-            );
-            return;
-        }
-
-        let profile_link = website::get_profile_link(user_id);
-        _ = discord::send_ac_purple_embed(
-            "Anticheat token missing",
-            MISSING_ANTICHEAT_TOKEN,
-            Some(&profile_link),
-        )
-        .await;
-    });
-}
-
 pub async fn fetch_user_friends(ctx: &RequestContext, user_id: i64) -> ServiceResult<Vec<i32>> {
     let friends = users::fetch_user_friends(ctx, user_id).await?;
     Ok(friends)
@@ -194,12 +164,6 @@ mod tests {
         assert_eq!(make_safe_username("Cookiezi"), "cookiezi");
         assert_eq!(make_safe_username("Lil Darkie "), "lil_darkie");
         assert_eq!(make_safe_username("[ Shigetora ]"), "[_shigetora_]");
-    }
-
-    #[test]
-    fn the_note_about_a_missing_anticheat_token_is_stored_as_written() {
-        // Latin1 replaces what it can not store, after which the note would not be found again
-        assert!(MISSING_ANTICHEAT_TOKEN.is_ascii());
     }
 
     #[tokio::test]

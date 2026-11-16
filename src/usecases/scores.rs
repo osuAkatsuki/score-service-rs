@@ -1,5 +1,5 @@
 use crate::adapters::performance_service::PerformanceRequest;
-use crate::adapters::{bancho_service, performance_service};
+use crate::adapters::{bancho_service, discord, performance_service};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_lock::RedisLock;
@@ -23,6 +23,7 @@ use crate::repositories::{match_game_scores, scores};
 use crate::settings::AppSettings;
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{error, info, warn};
+use crate::common::website;
 
 pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> ServiceResult<Score> {
     match scores::fetch_one(ctx, score_id).await? {
@@ -161,7 +162,15 @@ pub async fn submit(
     let user = users::fetch_one_and_auth(ctx, &args.score.username, &args.password_md5).await?;
     if args.anticheat_token.is_none() {
         warn!(user_id = user.user_id, "Anticheat Token is missing");
-        users::report_missing_anticheat_token(ctx, &user);
+        ctx.spawn(async move {
+            let profile_link = website::get_profile_link(user.user_id);
+            _ = discord::send_ac_purple_embed(
+                "Anticheat token missing",
+                "Submitted score without anticheat token (anticheat disabled, or a custom or outdated client).",
+                Some(&profile_link),
+            )
+                .await;
+        });
     }
 
     if ctx.user_agent.as_deref() != Some("osu!") {
@@ -193,7 +202,23 @@ pub async fn submit(
     let uninstall_md5 = md5::compute(&args.unique_ids.uninstall_md5);
     let uninstall_id_hash = format!("{:x}", uninstall_md5);
     if uninstall_id_hash != args.client_info.uninstall_md5 {
-        users::restrict_user(
+        warn!(
+            user_id = user.user_id,
+            client_hash_disk_signature = args.client_info.uninstall_md5,
+            submitted_disk_signature = uninstall_id_hash,
+            "Submitted score with uninstall hash mismatch"
+        );
+        ctx.spawn(async move {
+            let profile_link = website::get_profile_link(user.user_id);
+            _ = discord::send_ac_purple_embed(
+                "Submitted score with uninstall hash mismatch",
+                "Submitted score with mismatching uninstall hashes.",
+                Some(&profile_link),
+            )
+                .await;
+        });
+        // TODO: this is disabled for testing
+        /*users::restrict_user(
             ctx,
             user.user_id,
             "Submitted score with uninstall id hash mismatch.",
@@ -201,21 +226,29 @@ pub async fn submit(
         .await?;
         return Ok(ScoreSubmissionResult::Err(
             ScoreSubmissionError::UserRestricted,
-        ));
+        ));*/
     }
 
+    // A mismatching disk signature is not reliable enough to restrict for. The client asks Windows
+    // for it again with every score and may get another answer than the one in its client hash.
     let disk_signature_md5 = md5::compute(&args.unique_ids.disk_signature_md5);
     let disk_signature_hash = format!("{:x}", disk_signature_md5);
     if disk_signature_hash != args.client_info.disk_signature_md5 {
-        users::restrict_user(
-            ctx,
-            user.user_id,
-            "Submitted score with disk signature mismatch.",
-        )
-        .await?;
-        return Ok(ScoreSubmissionResult::Err(
-            ScoreSubmissionError::UserRestricted,
-        ));
+        warn!(
+            user_id = user.user_id,
+            client_hash_disk_signature = args.client_info.disk_signature_md5,
+            submitted_disk_signature = disk_signature_hash,
+            "Submitted score with disk signature mismatch"
+        );
+        ctx.spawn(async move {
+            let profile_link = website::get_profile_link(user.user_id);
+            _ = discord::send_ac_purple_embed(
+                "Submitted score with disk signature mismatch",
+                "Submitted score with mismatching disk signatures.",
+                Some(&profile_link),
+            )
+                .await;
+        });
     }
 
     if args.beatmap_md5 != args.score.beatmap_md5 {
