@@ -3,6 +3,7 @@ use crate::entities::scores::Score;
 use crate::models::beatmaps::Beatmap;
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
+use crate::common::osu::format_bool;
 
 /// The version of the osu! client the replay files claim to be created by
 const OSU_VERSION: i32 = 20211103;
@@ -59,7 +60,7 @@ fn replay_md5(score: &Score, username: &str) -> String {
         score.accuracy.count_miss,
         score.beatmap_md5,
         score.max_combo,
-        score.perfect_combo,
+        format_bool(score.perfect_combo),
         username,
         score.score,
         score.mods.bits(),
