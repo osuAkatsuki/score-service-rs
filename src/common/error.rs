@@ -97,8 +97,9 @@ impl AppError {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
 
-            AppError::MalformedRequest
-            | AppError::ScreenshotsInvalidFile => StatusCode::BAD_REQUEST,
+            AppError::MalformedRequest | AppError::ScreenshotsInvalidFile => {
+                StatusCode::BAD_REQUEST
+            }
 
             AppError::ScreenshotsNotAllowed => StatusCode::FORBIDDEN,
             AppError::ScreenshotsTooManyRequests => StatusCode::TOO_MANY_REQUESTS,

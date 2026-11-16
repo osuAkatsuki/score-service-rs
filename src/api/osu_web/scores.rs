@@ -19,9 +19,15 @@ pub async fn fetch_leaderboard(
 pub async fn submit(ctx: RequestContext, args: SubmitScoreArgs) -> ScoreSubmissionResult {
     match scores::submit(&ctx, args).await {
         Ok(result) => result,
-        Err(AppError::BeatmapsNotFound) => ScoreSubmissionResult::Err(ScoreSubmissionError::UnrankedBeatmap),
-        Err(AppError::UsersNotFound) => ScoreSubmissionResult::Err(ScoreSubmissionError::InvalidUser),
-        Err(AppError::UsersInvalidCredentials) => ScoreSubmissionResult::Err(ScoreSubmissionError::InvalidPassword),
+        Err(AppError::BeatmapsNotFound) => {
+            ScoreSubmissionResult::Err(ScoreSubmissionError::UnrankedBeatmap)
+        }
+        Err(AppError::UsersNotFound) => {
+            ScoreSubmissionResult::Err(ScoreSubmissionError::InvalidUser)
+        }
+        Err(AppError::UsersInvalidCredentials) => {
+            ScoreSubmissionResult::Err(ScoreSubmissionError::InvalidPassword)
+        }
         Err(AppError::Unauthorized) => ScoreSubmissionResult::Err(ScoreSubmissionError::Disallowed),
         _ => ScoreSubmissionResult::Err(ScoreSubmissionError::Retry),
     }
