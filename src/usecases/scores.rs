@@ -551,11 +551,6 @@ pub async fn submit(
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
     });
 
-    return Ok(ScoreSubmissionResult::EmptyCharts {
-        beatmap: Box::new(beatmap),
-        score_id: score.score_id,
-    });
-
     // Restricted users do not unlock any achievements
     let achievements = match restricted {
         true => Vec::new(),
