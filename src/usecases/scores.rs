@@ -456,35 +456,7 @@ pub async fn submit(
         user.username,
     );
 
-    let task_ctx = ctx.clone();
-    let event = SubmissionEvent {
-        score_data: &args.event_data.score_data,
-        exited_out: args.quit,
-        fail_time: args.fail_time,
-        visual_settings_b64: &args.event_data.visual_settings_b64,
-        updated_beatmap_hash: &args.beatmap_md5,
-        storyboard_md5: args.storyboard_md5.as_deref(),
-        iv_b64: &args.event_data.iv_b64,
-        unique_ids: &args.event_data.unique_ids,
-        score_time: args.score_time,
-        osu_version: &args.osu_version,
-        client_hash_b64: &args.event_data.client_hash_b64,
-        score_id: score.score_id,
-        user_id: user.user_id,
-        osu_auth_token: args.anticheat_token.as_deref(),
-        mode_vn: modded_gamemode.as_gamemode() as u8,
-        relax: modded_gamemode.mode_mod() as u8,
-    };
-    let event_payload = serde_json::to_string(&event);
-    ctx.spawn(async move {
-        _ = replays::save_replay(&task_ctx, score.score_id, args.replay_data.unwrap()).await;
-        if let Err(e) = scores::publish_score_event(&task_ctx, event_payload).await {
-            error!(
-                score_id = score.score_id,
-                "Failed to publish the score submission: {e}"
-            );
-        }
-    });
+    store_replay_and_publish(ctx, args, score.score_id, user.user_id, modded_gamemode);
 
     let mut restricted = !user.privileges.is_publicly_visible();
     let performance_autorestrict_cap =
@@ -628,6 +600,44 @@ pub async fn submit(
         beatmap_ranking: beatmap_ranking_chart,
         overall_ranking: overall_ranking_chart,
     })))
+}
+
+/// Stores the replay of a passed score and tells the other services about the submission.
+/// The response to the client depends on neither, so both happen in the background.
+fn store_replay_and_publish(
+    ctx: &RequestContext,
+    args: SubmitScoreArgs,
+    score_id: i64,
+    user_id: i64,
+    mode: ModdedGamemode,
+) {
+    let event = SubmissionEvent {
+        score_data: &args.event_data.score_data,
+        exited_out: args.quit,
+        fail_time: args.fail_time,
+        visual_settings_b64: &args.event_data.visual_settings_b64,
+        updated_beatmap_hash: &args.beatmap_md5,
+        storyboard_md5: args.storyboard_md5.as_deref(),
+        iv_b64: &args.event_data.iv_b64,
+        unique_ids: &args.event_data.unique_ids,
+        score_time: args.score_time,
+        osu_version: &args.osu_version,
+        client_hash_b64: &args.event_data.client_hash_b64,
+        score_id,
+        user_id,
+        osu_auth_token: args.anticheat_token.as_deref(),
+        mode_vn: mode.as_gamemode() as u8,
+        relax: mode.mode_mod() as u8,
+    };
+    let event_payload = serde_json::to_string(&event);
+
+    let task_ctx = ctx.clone();
+    ctx.spawn(async move {
+        _ = replays::save_replay(&task_ctx, score_id, args.replay_data.unwrap()).await;
+        if let Err(e) = scores::publish_score_event(&task_ctx, event_payload).await {
+            error!(score_id, "Failed to publish the score submission: {e}");
+        }
+    });
 }
 
 /// The part of a submitted score that is stored for the multiplayer match it was set in
