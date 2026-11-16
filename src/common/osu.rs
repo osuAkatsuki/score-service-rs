@@ -30,5 +30,3 @@ pub fn join_lines<T: Display>(items: &[T]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-
-pub const DATETIME_FORMAT_STR: &str = "%y%m%d%H%M%S";

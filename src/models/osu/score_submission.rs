@@ -1,6 +1,6 @@
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::multipart::{FromMultipart, FromMultipartError, FromMultipartField, Multipart};
-use crate::common::osu::{DATETIME_FORMAT_STR, format_bool};
+use crate::common::osu::format_bool;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::mode::Gamemode;
 use crate::entities::mods::Mods;
@@ -11,7 +11,6 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, Multipart as MultipartExtractor, Request};
 use axum::response::{IntoResponse, Response};
 use bitflags::bitflags;
-use chrono::NaiveDateTime;
 use simple_rijndael::Errors as RijndaelError;
 use simple_rijndael::impls::RijndaelCbc;
 use simple_rijndael::paddings::Padding;
@@ -58,8 +57,9 @@ pub struct ScoreStatistics {
     pub mods: Mods,
     pub passed: bool,
     pub mode: Gamemode,
-    // Format: yyMMddHHmmss
-    pub client_timestamp: NaiveDateTime,
+    // Format: yyMMddHHmmss, in the calendar of the client's system.
+    // Kept as sent, since it is only needed for the score checksum.
+    pub client_timestamp: String,
     pub osu_version: String,
     // In the payload sent by the osu! client,
     // this is represented as spaces following the osu version (lol)
@@ -217,10 +217,7 @@ impl SubmitScoreArgs {
             self.score.stats.mods.bits(),
             format_bool(self.score.stats.passed),
             self.score.stats.mode as u8,
-            self.score
-                .stats
-                .client_timestamp
-                .format(DATETIME_FORMAT_STR),
+            self.score.stats.client_timestamp,
             self.score.stats.osu_version,
             self.client_info.client_hash,
             self.storyboard_md5.as_deref().unwrap_or(""),
@@ -312,8 +309,6 @@ impl FromStr for ScoreStatistics {
             .map_err(|_| AppError::MalformedRequest)?;
         let passed = passed == "True";
         let mode = mode.parse::<u8>().map_err(|_| AppError::MalformedRequest)?;
-        let client_timestamp = NaiveDateTime::parse_from_str(client_timestamp, DATETIME_FORMAT_STR)
-            .map_err(|_| AppError::MalformedRequest)?;
         let score_flags = ScoreFlags::from_bits_retain((osu_version.len() - 8) as _);
         let osu_version = &osu_version[..8];
 
@@ -324,11 +319,11 @@ impl FromStr for ScoreStatistics {
             max_combo,
             score_flags,
             perfect_combo,
-            client_timestamp,
             mode: Gamemode::from(mode),
             mods: Mods::from_bits_truncate(mods),
             osu_version: osu_version.to_string(),
             achieved_grade: achieved_grade.to_string(),
+            client_timestamp: client_timestamp.to_string(),
         })
     }
 }
