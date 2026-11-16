@@ -374,7 +374,7 @@ pub async fn submit(
     // Skip stats calculation if performance calc fails.
     // The score is kept as a pass that is worth nothing until its performance is recalculated.
     let Ok(performance) = performance else {
-        scores::create(
+        let score = scores::create(
             ctx,
             CreateScoreArgs {
                 user_id: user.user_id,
@@ -391,6 +391,8 @@ pub async fn submit(
             },
         )
         .await?;
+        // The client submits the replay only once, so it is stored even though the score is worth nothing yet
+        store_replay_and_publish(ctx, args, score.score_id, user.user_id, modded_gamemode);
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
         return Ok(ScoreSubmissionResult::Ok);
     };
