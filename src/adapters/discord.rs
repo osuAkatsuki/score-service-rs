@@ -1,9 +1,10 @@
 use crate::common::error::{ServiceResult, unexpected};
 use crate::settings::AppSettings;
-use discord_webhook2::error::DiscordWebhookError;
-use discord_webhook2::message::Message;
-use discord_webhook2::webhook::DiscordWebhook;
-use iso8601_timestamp::Timestamp;
+use chrono::{SecondsFormat, Utc};
+use reqwest::StatusCode;
+use serde_json::{Value, json};
+use std::fmt;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 /// How often sending a message is attempted before giving up on it
@@ -12,6 +13,8 @@ const MAX_ATTEMPTS: u32 = 10;
 const PURPLE_EMBED_COLOR: u32 = 0x6611FF;
 const RED_EMBED_COLOR: u32 = 0xFF5555;
 const BLUE_EMBED_COLOR: u32 = 0x00a2ff;
+
+static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(super::http_client);
 
 pub async fn send_ac_purple_embed(
     title: &str,
@@ -60,30 +63,14 @@ pub async fn send_embed(
     url: Option<&str>,
     color: u32,
 ) -> ServiceResult<()> {
-    let webhook = DiscordWebhook::new(webhook_url)?;
-    let message = Message::new(|message| {
-        message.embed(|embed| {
-            embed
-                .description(description)
-                .author(|author| {
-                    let author = author.name(title);
-                    match url {
-                        Some(url) => author.url(url),
-                        None => author,
-                    }
-                })
-                .color(color)
-                .footer(|footer| footer.text("score-service 🎯"))
-                .timestamp(Timestamp::now_utc())
-        })
-    });
+    let message = embed_message(title, description, url, color);
 
     // Waits 1, 2, 4, ... seconds between the attempts
     let mut attempt = 1;
     loop {
-        match webhook.send(&message).await {
-            Ok(_) => return Ok(()),
-            Err(e) if attempt < MAX_ATTEMPTS && is_worth_retrying(&e) => {
+        match send_message(webhook_url, &message).await {
+            Ok(()) => return Ok(()),
+            Err(e) if attempt < MAX_ATTEMPTS && e.is_worth_retrying() => {
                 tokio::time::sleep(Duration::from_secs(1 << (attempt - 1))).await;
                 attempt += 1;
             }
@@ -92,14 +79,77 @@ pub async fn send_embed(
     }
 }
 
-/// Only failures that are likely to go away on their own are worth another attempt
-fn is_worth_retrying(error: &DiscordWebhookError) -> bool {
-    match error {
-        DiscordWebhookError::ReqwestError(e) => e.is_connect() || e.is_timeout() || e.is_request(),
-        // All that is known about a rejected message is the body of the response.
-        // Discord tells clients that are sending too many messages when to try again.
-        DiscordWebhookError::FormatError(response) => response.contains("retry_after"),
-        DiscordWebhookError::UrlParseError(_) => false,
+/// The body of a webhook message that consists of a single embed
+fn embed_message(title: &str, description: &str, url: Option<&str>, color: u32) -> Value {
+    let mut author = json!({ "name": title });
+    if let Some(url) = url {
+        author["url"] = json!(url);
+    }
+    json!({
+        "embeds": [{
+            "description": description,
+            "author": author,
+            "color": color,
+            "footer": { "text": "score-service 🎯" },
+            "timestamp": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        }]
+    })
+}
+
+async fn send_message(webhook_url: &str, message: &Value) -> Result<(), SendError> {
+    let response = CLIENT
+        .post(webhook_url)
+        // Without it, Discord does not report messages that it fails to save
+        .query(&[("wait", "true")])
+        .json(message)
+        .send()
+        .await
+        .map_err(SendError::Request)?;
+
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = response.text().await.unwrap_or_default();
+    Err(SendError::Rejected { status, body })
+}
+
+#[derive(Debug)]
+enum SendError {
+    /// The message did not make it to Discord, or its answer did not make it back
+    Request(reqwest::Error),
+    /// Discord answered, but did not accept the message
+    Rejected { status: StatusCode, body: String },
+}
+
+impl SendError {
+    /// Only failures that are likely to go away on their own are worth another attempt
+    fn is_worth_retrying(&self) -> bool {
+        match self {
+            SendError::Request(e) => e.is_connect() || e.is_timeout() || e.is_request(),
+            // Discord tells clients that are sending too many messages to slow down
+            SendError::Rejected { status, .. } => *status == StatusCode::TOO_MANY_REQUESTS,
+        }
+    }
+}
+
+impl fmt::Display for SendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SendError::Request(e) => write!(f, "Failed to send the Discord message: {e}"),
+            SendError::Rejected { status, body } => {
+                write!(f, "Discord rejected the message with {status}: {body}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SendError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SendError::Request(e) => Some(e),
+            SendError::Rejected { .. } => None,
+        }
     }
 }
 
@@ -107,17 +157,41 @@ fn is_worth_retrying(error: &DiscordWebhookError) -> bool {
 mod tests {
     use super::*;
 
+    fn rejected(status: StatusCode) -> SendError {
+        SendError::Rejected {
+            status,
+            body: String::new(),
+        }
+    }
+
     #[test]
     fn retries_rate_limited_messages_only() {
-        let rate_limited = DiscordWebhookError::FormatError(
-            r#"{"message": "You are being rate limited.", "retry_after": 0.5, "global": false}"#
-                .to_owned(),
-        );
-        assert!(is_worth_retrying(&rate_limited));
+        assert!(rejected(StatusCode::TOO_MANY_REQUESTS).is_worth_retrying());
+        assert!(!rejected(StatusCode::BAD_REQUEST).is_worth_retrying());
+        assert!(!rejected(StatusCode::NOT_FOUND).is_worth_retrying());
+    }
 
-        let invalid = DiscordWebhookError::FormatError(
-            r#"{"message": "Cannot send an empty message", "code": 50006}"#.to_owned(),
+    #[test]
+    fn links_the_author_only_when_there_is_a_url() {
+        let link = "https://akatsuki.gg/u/1000";
+        let message = embed_message("User restricted", "reason", Some(link), RED_EMBED_COLOR);
+        assert_eq!(
+            message["embeds"][0]["author"],
+            json!({ "name": "User restricted", "url": link })
         );
-        assert!(!is_worth_retrying(&invalid));
+
+        let message = embed_message("User restricted", "reason", None, RED_EMBED_COLOR);
+        assert_eq!(
+            message["embeds"][0]["author"],
+            json!({ "name": "User restricted" })
+        );
+    }
+
+    #[test]
+    fn timestamps_have_millisecond_precision() {
+        let message = embed_message("User restricted", "reason", None, RED_EMBED_COLOR);
+        let timestamp = message["embeds"][0]["timestamp"].as_str().unwrap();
+        assert!(chrono::DateTime::parse_from_rfc3339(timestamp).is_ok());
+        assert_eq!(timestamp.len(), "2026-11-16T00:56:44.085Z".len());
     }
 }
