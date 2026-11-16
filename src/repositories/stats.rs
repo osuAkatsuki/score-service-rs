@@ -58,17 +58,32 @@ pub async fn update(
     }
 
     if let Some(ranked_score_change) = update.ranked_score_change {
-        update_params.push("ranked_score = ranked_score+?".to_owned());
-        args.add(ranked_score_change)
-            .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let amount = ranked_score_change.unsigned_abs();
+        if ranked_score_change >= 0 {
+            update_params.push("ranked_score = ranked_score+?".to_owned());
+            args.add(amount)
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        } else {
+            // The column is unsigned, taking away more than there is would fail the whole update.
+            // Not every replaced score has been counted, so there may be less than it was worth.
+            update_params.push("ranked_score = IF(ranked_score > ?, ranked_score-?, 0)".to_owned());
+            args.add(amount)
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+            args.add(amount)
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        }
     }
 
     if let Some(incr_grade) = update.increment_grade {
         update_params.push(format!("{0} = {0}+1", incr_grade.column_name()));
     }
 
+    // The columns are unsigned, taking away from a count of zero would fail the whole update
     if let Some(decr_grade) = update.decrement_grade {
-        update_params.push(format!("{0} = {0}-1", decr_grade.column_name()));
+        update_params.push(format!(
+            "{0} = IF({0} > 0, {0}-1, 0)",
+            decr_grade.column_name()
+        ));
     }
 
     if let Some(max_combo) = update.max_combo {
