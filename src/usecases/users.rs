@@ -48,18 +48,18 @@ pub async fn fetch_one_and_auth(
         Err(e) => return unexpected(e),
     };
 
-    let privileges = Privileges::from_bits_retain(user.privileges);
-    // This check is exclusive to score-service, because none of the osu_web controllers
-    // should serve unverified users or users that cannot log in.
-    if !privileges.can_login() || privileges.is_pending_verification() {
-        return Err(AppError::UsersInvalidCredentials);
-    }
-
     if !verify_password(password, &user.password_md5).await? {
         return Err(AppError::UsersInvalidCredentials);
     }
 
-    User::try_from(user)
+    let user = User::try_from(user)?;
+    // This check is exclusive to score-service, because none of the osu_web controllers
+    // should serve unverified users or users that cannot log in.
+    if !user.privileges.can_login() || user.privileges.is_pending_verification() {
+        Err(AppError::UsersInvalidCredentials)
+    } else {
+        Ok(user)
+    }
 }
 
 pub async fn fetch_username(ctx: &RequestContext, user_id: i64) -> ServiceResult<String> {
