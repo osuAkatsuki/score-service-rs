@@ -392,7 +392,7 @@ pub async fn submit(
         // The client submits the replay only once, so it is stored even though the score is worth nothing yet
         store_replay_and_publish(ctx, args, score.score_id, user.user_id, modded_gamemode);
         stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
-        
+
         return Ok(ScoreSubmissionResult::EmptyCharts {
             beatmap: Box::new(beatmap),
             score_id: score.score_id,
@@ -549,6 +549,11 @@ pub async fn submit(
     let task_ctx = ctx.clone();
     ctx.spawn(async move {
         _ = stats::update(&task_ctx, user.user_id, modded_gamemode, &update_stats).await;
+    });
+
+    return Ok(ScoreSubmissionResult::EmptyCharts {
+        beatmap: Box::new(beatmap),
+        score_id: score.score_id,
     });
 
     // Restricted users do not unlock any achievements
