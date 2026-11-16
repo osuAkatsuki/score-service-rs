@@ -1,7 +1,5 @@
-FROM rust:bookworm AS chef
-# We only pay the installation cost once,
-# it will be cached from the second build onwards
-RUN cargo install cargo-chef --locked
+# Ships with cargo-chef preinstalled, which saves compiling it on every uncached build
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1.100-bookworm AS chef
 WORKDIR /app
 
 FROM chef AS planner
