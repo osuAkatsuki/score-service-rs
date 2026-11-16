@@ -810,6 +810,7 @@ mod tests {
 
         let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
             |approvedDate:2023-11-14 22:13:20\n\
+            chartId:beatmap|chartName:Beatmap Ranking|rankBefore:0|ppBefore:|ppAfter:\n\
             chartId:overall|chartName:Overall Ranking|onlineScoreId:1001";
         assert_eq!(result.osu_format(), expected);
     }
@@ -845,10 +846,10 @@ mod tests {
         }));
 
         let expected = "beatmapId:75|beatmapSetId:1|beatmapPlaycount:10|beatmapPasscount:5\
-            |approvedDate:2023-11-14 22:13:20|\n\
-            |chartId:beatmap|chartUrl:https://osu.akatsuki.gg/beatmapsets/1|chartName:Beatmap Ranking\
-            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5|\n\
-            |chartId:overall|chartUrl:https://akatsuki.gg/u/1001|chartName:Overall Ranking\
+            |approvedDate:2023-11-14 22:13:20\n\
+            chartId:beatmap|chartUrl:https://osu.akatsuki.gg/beatmapsets/1|chartName:Beatmap Ranking\
+            |rankBefore:|rankAfter:1|accuracyBefore:98.12|accuracyAfter:99.5\n\
+            chartId:overall|chartUrl:https://akatsuki.gg/u/1001|chartName:Overall Ranking\
             |ppBefore:100|ppAfter:120|onlineScoreId:1001\
             |achievements-new:osu-skill-pass-1+Rising Star+Can't go forward without the first steps.\
             /all-intro-hidden+Blindsight+I can see just perfectly";
