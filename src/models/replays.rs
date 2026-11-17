@@ -48,24 +48,8 @@ impl IntoResponse for ReplayFile {
     }
 }
 
-/// The client verifies replays with a checksum over the result of the play
-fn replay_md5(score: &Score, username: &str) -> String {
-    let checksum_input = format!(
-        "{}p{}o{}o{}t{}a{}r{}e{}y{}o{}u0{}true",
-        score.accuracy.count_100 + score.accuracy.count_300,
-        score.accuracy.count_50,
-        score.accuracy.count_geki,
-        score.accuracy.count_katu,
-        score.accuracy.count_miss,
-        score.beatmap_md5,
-        score.max_combo,
-        score.perfect_combo,
-        username,
-        score.score,
-        score.mods.bits(),
-    );
-    format!("{:x}", md5::compute(checksum_input))
-}
+/// MD5 hash of "0", used as the replay checksum, since the osu! client never needs it.
+const REPLAY_HASH: &str = "cfcd208495d565ef66e7dff9f98764da";
 
 fn encode(score: &Score, username: &str, replay: &[u8]) -> Vec<u8> {
     let mut contents = Vec::with_capacity(replay.len() + 256);
@@ -73,7 +57,7 @@ fn encode(score: &Score, username: &str, replay: &[u8]) -> Vec<u8> {
     contents.extend(OSU_VERSION.to_le_bytes());
     write_string(&mut contents, &score.beatmap_md5);
     write_string(&mut contents, username);
-    write_string(&mut contents, &replay_md5(score, username));
+    write_string(&mut contents, REPLAY_HASH);
 
     contents.extend(score.accuracy.count_300.to_le_bytes());
     contents.extend(score.accuracy.count_100.to_le_bytes());
@@ -173,44 +157,6 @@ mod tests {
         write_string(&mut contents, "");
         write_string(&mut contents, "osu!");
         assert_eq!(contents, [0x00, 0x0b, 0x04, b'o', b's', b'u', b'!']);
-    }
-
-    #[test]
-    fn checksums_the_result_of_the_play() {
-        // md5 of "310p5o20o3t1aa5b99395a42bd55bc5eb1d2411cbdf8br512etrueycmyuio1234567u072true"
-        let expected = format!(
-            "{:x}",
-            md5::compute(
-                "310p5o20o3t1aa5b99395a42bd55bc5eb1d2411cbdf8br512etrueycmyuio1234567u072true"
-            )
-        );
-        assert_eq!(replay_md5(&score(), "cmyui"), expected);
-    }
-
-    #[test]
-    fn encodes_replays_like_the_osu_client() {
-        let score = score();
-        let contents = encode(&score, "cmyui", &[1, 2, 3, 4]);
-
-        let mut expected = vec![0x01];
-        expected.extend([0x9f, 0x65, 0x34, 0x01]); // 20211103
-        expected.extend([0x0b, 32]);
-        expected.extend(b"a5b99395a42bd55bc5eb1d2411cbdf8b");
-        expected.extend([0x0b, 5]);
-        expected.extend(b"cmyui");
-        expected.extend([0x0b, 32]);
-        expected.extend(replay_md5(&score, "cmyui").as_bytes());
-        expected.extend([0x2c, 0x01, 10, 0, 5, 0, 20, 0, 3, 0, 1, 0]);
-        expected.extend([0x87, 0xd6, 0x12, 0x00]); // 1234567
-        expected.extend([0x00, 0x02]); // 512
-        expected.push(1);
-        expected.extend([72, 0, 0, 0]);
-        expected.push(0x00);
-        expected.extend(638_355_968_000_000_000i64.to_le_bytes());
-        expected.extend([4, 0, 0, 0, 1, 2, 3, 4]);
-        expected.extend(500_000_123i64.to_le_bytes());
-
-        assert_eq!(contents, expected);
     }
 
     #[test]

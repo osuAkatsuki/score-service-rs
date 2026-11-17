@@ -1,8 +1,9 @@
 use crate::adapters::performance_service::PerformanceRequest;
-use crate::adapters::{bancho_service, performance_service};
+use crate::adapters::{bancho_service, discord, performance_service};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_lock::RedisLock;
+use crate::common::website;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
@@ -155,13 +156,21 @@ pub async fn fetch_leaderboard_view(
 }
 
 pub async fn submit(
-    ctx: &RequestContext,
+    ctx: RequestContext,
     args: SubmitScoreArgs,
 ) -> ServiceResult<ScoreSubmissionResult> {
-    let user = users::fetch_one_and_auth(ctx, &args.score.username, &args.password_md5).await?;
+    let user = users::fetch_one_and_auth(&ctx, &args.score.username, &args.password_md5).await?;
     if args.anticheat_token.is_none() {
         warn!(user_id = user.user_id, "Anticheat Token is missing");
-        users::report_missing_anticheat_token(ctx, &user);
+        ctx.spawn(async move {
+            let profile_link = website::get_profile_link(user.user_id);
+            _ = discord::send_ac_purple_embed(
+                "Anticheat token missing",
+                "Submitted score without anticheat token (anticheat disabled, or a custom or outdated client).",
+                Some(&profile_link),
+            )
+                .await;
+        });
     }
 
     if ctx.user_agent.as_deref() != Some("osu!") {
@@ -169,7 +178,7 @@ pub async fn submit(
             "Submitted score with unexpected user agent: {}.",
             ctx.user_agent.as_deref().unwrap_or("none")
         );
-        users::restrict_user(ctx, user.user_id, &reason).await?;
+        users::restrict_user(&ctx, user.user_id, &reason).await?;
         return Ok(ScoreSubmissionResult::Err(
             ScoreSubmissionError::UserRestricted,
         ));
@@ -184,7 +193,7 @@ pub async fn submit(
             .as_ref()
             .is_none_or(|replay| replay.len() < 24)
     {
-        users::restrict_user(ctx, user.user_id, "Submitted score without replay.").await?;
+        users::restrict_user(&ctx, user.user_id, "Submitted score without replay.").await?;
         return Ok(ScoreSubmissionResult::Err(
             ScoreSubmissionError::UserRestricted,
         ));
@@ -193,7 +202,23 @@ pub async fn submit(
     let uninstall_md5 = md5::compute(&args.unique_ids.uninstall_md5);
     let uninstall_id_hash = format!("{:x}", uninstall_md5);
     if uninstall_id_hash != args.client_info.uninstall_md5 {
-        users::restrict_user(
+        warn!(
+            user_id = user.user_id,
+            client_hash_uninstall_hash = args.client_info.uninstall_md5,
+            submitted_uninstall_hash = uninstall_id_hash,
+            "Submitted score with uninstall hash mismatch"
+        );
+        ctx.spawn(async move {
+            let profile_link = website::get_profile_link(user.user_id);
+            _ = discord::send_ac_purple_embed(
+                "Submitted score with uninstall hash mismatch",
+                "Submitted score with mismatching uninstall hashes.",
+                Some(&profile_link),
+            )
+            .await;
+        });
+        // TODO: this is disabled for testing
+        /*users::restrict_user(
             ctx,
             user.user_id,
             "Submitted score with uninstall id hash mismatch.",
@@ -201,26 +226,34 @@ pub async fn submit(
         .await?;
         return Ok(ScoreSubmissionResult::Err(
             ScoreSubmissionError::UserRestricted,
-        ));
+        ));*/
     }
 
+    // A mismatching disk signature is not reliable enough to restrict for. The client asks Windows
+    // for it again with every score and may get another answer than the one in its client hash.
     let disk_signature_md5 = md5::compute(&args.unique_ids.disk_signature_md5);
     let disk_signature_hash = format!("{:x}", disk_signature_md5);
     if disk_signature_hash != args.client_info.disk_signature_md5 {
-        users::restrict_user(
-            ctx,
-            user.user_id,
-            "Submitted score with disk signature mismatch.",
-        )
-        .await?;
-        return Ok(ScoreSubmissionResult::Err(
-            ScoreSubmissionError::UserRestricted,
-        ));
+        warn!(
+            user_id = user.user_id,
+            client_hash_disk_signature = args.client_info.disk_signature_md5,
+            submitted_disk_signature = disk_signature_hash,
+            "Submitted score with disk signature mismatch"
+        );
+        ctx.spawn(async move {
+            let profile_link = website::get_profile_link(user.user_id);
+            _ = discord::send_ac_purple_embed(
+                "Submitted score with disk signature mismatch",
+                "Submitted score with mismatching disk signatures.",
+                Some(&profile_link),
+            )
+            .await;
+        });
     }
 
     if args.beatmap_md5 != args.score.beatmap_md5 {
         users::restrict_user(
-            ctx,
+            &ctx,
             user.user_id,
             "Submitted score with beatmap hash mismatch (edited .osu file).",
         )
@@ -232,7 +265,7 @@ pub async fn submit(
 
     if args.score_md5() != args.score.score_md5 {
         users::restrict_user(
-            ctx,
+            &ctx,
             user.user_id,
             "Submitted score with score hash mismatch.",
         )
@@ -247,7 +280,7 @@ pub async fn submit(
             "Submitted score with illegal mod combination: {}.",
             args.score.stats.mods
         );
-        users::restrict_user(ctx, user.user_id, &reason).await?;
+        users::restrict_user(&ctx, user.user_id, &reason).await?;
         return Ok(ScoreSubmissionResult::Err(
             ScoreSubmissionError::UserRestricted,
         ));
@@ -285,9 +318,9 @@ pub async fn submit(
     // Clients retry requests they did not get a response for in time.
     // The lock makes the retry wait until it can be recognised as a duplicate.
     let submission_lock_key = format!("score_submission:{}", args.score.score_md5);
-    let _submission_lock = RedisLock::acquire(ctx, submission_lock_key).await?;
+    let _submission_lock = RedisLock::acquire(&ctx, submission_lock_key).await?;
 
-    let duplicate = scores::checksum_exists(ctx, modded_gamemode, &args.score.score_md5).await?;
+    let duplicate = scores::checksum_exists(&ctx, modded_gamemode, &args.score.score_md5).await?;
     if duplicate {
         warn!(
             user_id = user.user_id,
@@ -328,7 +361,7 @@ pub async fn submit(
         .await;
     });
 
-    let old_stats = stats::fetch_one(ctx, user.user_id, modded_gamemode).await?;
+    let old_stats = stats::fetch_one(&ctx, user.user_id, modded_gamemode).await?;
     let mut update_stats = UpdateStats::default();
     update_stats.increment_play_count();
     update_stats.increment_total_hits(
@@ -350,7 +383,7 @@ pub async fn submit(
             false => ScoreStatus::Failed,
         };
         scores::create(
-            ctx,
+            &ctx,
             CreateScoreArgs {
                 user_id: user.user_id,
                 beatmap_md5: &beatmap.beatmap_md5,
@@ -366,7 +399,7 @@ pub async fn submit(
             },
         )
         .await?;
-        stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
+        stats::update(&ctx, user.user_id, modded_gamemode, &update_stats).await?;
         return Ok(ScoreSubmissionResult::Ok);
     }
 
@@ -389,7 +422,7 @@ pub async fn submit(
     // The score is kept as a pass that is worth nothing until its performance is recalculated.
     let Ok(performance) = performance else {
         let score = scores::create(
-            ctx,
+            &ctx,
             CreateScoreArgs {
                 user_id: user.user_id,
                 beatmap_md5: &beatmap.beatmap_md5,
@@ -406,8 +439,8 @@ pub async fn submit(
         )
         .await?;
         // The client submits the replay only once, so it is stored even though the score is worth nothing yet
-        store_replay_and_publish(ctx, args, score.score_id, user.user_id, modded_gamemode);
-        stats::update(ctx, user.user_id, modded_gamemode, &update_stats).await?;
+        store_replay_and_publish(&ctx, args, score.score_id, user.user_id, modded_gamemode);
+        stats::update(&ctx, user.user_id, modded_gamemode, &update_stats).await?;
 
         return Ok(ScoreSubmissionResult::EmptyCharts {
             beatmap: Box::new(beatmap),
@@ -415,7 +448,7 @@ pub async fn submit(
         });
     };
     let personal_best =
-        scores::fetch_user_best(ctx, user.user_id, &beatmap.beatmap_md5, modded_gamemode).await?;
+        scores::fetch_user_best(&ctx, user.user_id, &beatmap.beatmap_md5, modded_gamemode).await?;
 
     let calculated_grade = args
         .score
@@ -436,7 +469,7 @@ pub async fn submit(
             if pb.performance < performance.pp
                 || (pb.performance == performance.pp && pb.score < args.score.stats.score) =>
         {
-            scores::set_to_completed(ctx, pb.score_id, modded_gamemode).await?;
+            scores::set_to_completed(&ctx, pb.score_id, modded_gamemode).await?;
             let pb_calculated_grade = pb.accuracy.grade(pb.mode.as_gamemode(), pb.mods);
             if is_ranked {
                 let ranked_score_change = args.score.stats.score - pb.score;
@@ -452,7 +485,7 @@ pub async fn submit(
     };
 
     let score = scores::create(
-        ctx,
+        &ctx,
         CreateScoreArgs {
             user_id: user.user_id,
             beatmap_md5: &beatmap.beatmap_md5,
@@ -477,11 +510,11 @@ pub async fn submit(
         user.username,
     );
 
-    store_replay_and_publish(ctx, args, score.score_id, user.user_id, modded_gamemode);
+    store_replay_and_publish(&ctx, args, score.score_id, user.user_id, modded_gamemode);
 
     let mut restricted = !user.privileges.is_publicly_visible();
     let performance_autorestrict_cap =
-        performance_caps::fetch_one(ctx, modded_gamemode, sanitized_mods).await?;
+        performance_caps::fetch_one(&ctx, modded_gamemode, sanitized_mods).await?;
     if !restricted
         && is_ranked
         && !user.whitelist.is_whitelisted_for(modded_gamemode)
@@ -491,7 +524,7 @@ pub async fn submit(
             "Achieved performance exceeds autorestrict limit: {:.2}pp with {:?} on {} (score id {}).",
             score.performance, sanitized_mods, beatmap.song_name, score.score_id,
         );
-        users::restrict_user(ctx, user.user_id, &reason).await?;
+        users::restrict_user(&ctx, user.user_id, &reason).await?;
         restricted = true;
     }
 
@@ -502,11 +535,11 @@ pub async fn submit(
     };
 
     let mut new_rank = None;
-    let old_rank = stats::fetch_global_rank(ctx, user.user_id, modded_gamemode).await?;
+    let old_rank = stats::fetch_global_rank(&ctx, user.user_id, modded_gamemode).await?;
     let pb_rank = match &personal_best {
         Some(pb) => Some(
             scores::find_rank(
-                ctx,
+                &ctx,
                 user.user_id,
                 &beatmap.beatmap_md5,
                 modded_gamemode,
@@ -517,7 +550,7 @@ pub async fn submit(
         None => None,
     };
     let score_rank = scores::find_rank(
-        ctx,
+        &ctx,
         user.user_id,
         &beatmap.beatmap_md5,
         modded_gamemode,
@@ -527,7 +560,7 @@ pub async fn submit(
     if status == ScoreStatus::Best {
         if is_ranked {
             let (new_pp, new_avg_acc) =
-                stats::recalculate_weighted(ctx, user.user_id, modded_gamemode).await?;
+                stats::recalculate_weighted(&ctx, user.user_id, modded_gamemode).await?;
             update_stats.update_avg_accuracy(new_avg_acc);
             if old_stats.pp != new_pp {
                 update_stats.update_pp(new_pp);
@@ -537,7 +570,7 @@ pub async fn submit(
             if old_stats.pp != new_pp && !restricted {
                 update_stats.update_latest_pp_awarded();
                 new_rank =
-                    stats::update_rank(ctx, user.user_id, modded_gamemode, &user.country, new_pp)
+                    stats::update_rank(&ctx, user.user_id, modded_gamemode, &user.country, new_pp)
                         .await?;
             }
         }
@@ -572,7 +605,7 @@ pub async fn submit(
         true => Vec::new(),
         false => {
             let global_rank = new_rank.or(old_rank);
-            unlock_achievements(ctx, &score, &new_stats, performance.stars, global_rank).await?
+            unlock_achievements(&ctx, &score, &new_stats, performance.stars, global_rank).await?
         }
     };
 

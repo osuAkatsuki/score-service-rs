@@ -37,10 +37,18 @@ pub fn unexpected<T, E: Into<anyhow::Error>>(e: E) -> ServiceResult<T> {
     Err(AppError::Unexpected)
 }
 
+#[cold]
+#[track_caller]
+pub fn unexpected_err<E: Into<anyhow::Error>>(e: E) -> AppError {
+    let caller = std::panic::Location::caller();
+    error!("An unexpected error has occurred at {caller}: {}", e.into());
+    AppError::Unexpected
+}
+
 impl<E: Into<anyhow::Error>> From<E> for AppError {
     #[track_caller]
     fn from(e: E) -> Self {
-        unexpected::<(), E>(e).unwrap_err()
+        unexpected_err(e)
     }
 }
 
