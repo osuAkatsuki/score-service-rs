@@ -3,6 +3,7 @@ use crate::adapters::{bancho_service, discord, performance_service};
 use crate::api::context::RequestContext;
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_lock::RedisLock;
+use crate::common::website;
 use crate::entities::accuracy::Accuracy;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
@@ -23,7 +24,6 @@ use crate::repositories::{match_game_scores, scores};
 use crate::settings::AppSettings;
 use crate::usecases::{beatmaps, charts, first_places, performance_caps, replays, stats, users};
 use tracing::{error, info, warn};
-use crate::common::website;
 
 pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> ServiceResult<Score> {
     match scores::fetch_one(ctx, score_id).await? {
@@ -215,7 +215,7 @@ pub async fn submit(
                 "Submitted score with mismatching uninstall hashes.",
                 Some(&profile_link),
             )
-                .await;
+            .await;
         });
         // TODO: this is disabled for testing
         /*users::restrict_user(
@@ -247,7 +247,7 @@ pub async fn submit(
                 "Submitted score with mismatching disk signatures.",
                 Some(&profile_link),
             )
-                .await;
+            .await;
         });
     }
 
