@@ -208,11 +208,11 @@ pub async fn submit(
             submitted_uninstall_hash = uninstall_id_hash,
             "Submitted score with uninstall hash mismatch"
         );
-        let task_username = user.username.clone();
+        let embed_title = format!("{} ({})", user.username, user.user_id);
         ctx.spawn(async move {
             let profile_link = website::get_profile_link(user.user_id);
             _ = discord::send_hw_purple_embed(
-                &task_username,
+                &embed_title,
                 "Submitted score with mismatching uninstall hashes.",
                 Some(&profile_link),
             )
@@ -241,11 +241,11 @@ pub async fn submit(
             submitted_disk_signature = disk_signature_hash,
             "Submitted score with disk signature mismatch"
         );
-        let task_username = user.username.clone();
+        let embed_title = format!("{} ({})", user.username, user.user_id);
         ctx.spawn(async move {
             let profile_link = website::get_profile_link(user.user_id);
             _ = discord::send_hw_purple_embed(
-                &task_username,
+                &embed_title,
                 "Submitted score with mismatching disk signatures.",
                 Some(&profile_link),
             )
