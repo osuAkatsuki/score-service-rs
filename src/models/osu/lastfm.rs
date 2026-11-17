@@ -10,82 +10,77 @@ bitflags! {
     pub struct LastFmFlags: i32 {
         /// osu! was started with an `ld` argument
         const LdArgument = 1 << 0;
-        /// The window in the foreground when osu! started contained a console window
+        /// The window in the foreground when osu! started contained a console window,
+        /// possibly a debugger or a cheat loader
         const ConsoleWindow = 1 << 1;
-        /// A thread of the osu! process owned a window before osu! created any of its own
+        /// A thread of the osu! process owned a window before osu! created any of its own,
+        /// which usually means something has been injected into osu!
         const ForeignWindow = 1 << 2;
         /// An assembly named like hq!osu's was loaded when osu! started
         const HqOsuAssembly = 1 << 3;
         /// A file named like hq!osu's is in the osu! directory
         const HqOsuFile = 1 << 4;
-        /// The registry has Image File Execution Options for `osu!.exe`
+        /// The registry has Image File Execution Options for `osu!.exe`, traces of the
+        /// hq!osu Relife multiaccounting tool. The user has used it, but may not be using it now.
         const ImageFileExecutionOptions = 1 << 5;
-        /// An assembly named `sdl2` was loaded when a play started
+        /// An assembly named `sdl2` was loaded when a play started, a trace of an ancient AQN
         const Sdl2Assembly = 1 << 6;
-        /// An assembly named `libeay32` was loaded when a play started
+        /// An assembly named `libeay32` was loaded when a play started, a trace of an ancient AQN
         const Libeay32Assembly = 1 << 7;
-        /// osu! loaded the `notify1` sample outside the editor
+        /// osu! loaded the `notify1` sample outside the editor, which the menu of an ancient
+        /// AQN does
         const Notify1Sample = 1 << 8;
         /// A loaded assembly's name contains `hqOsu`, `Harmony`, or `MonoMod` (case-insensitive)
         const PatchingAssemblyLoaded = 1 << 9;
-        /// A top-level `ConsoleWindowClass` window is owned by the osu! process
+        /// A top-level `ConsoleWindowClass` window is owned by the osu! process, which can be
+        /// an injected console or debugging/patching tools
         const ProcessConsoleWindow = 1 << 10;
     }
 }
 
-/// Down to earth explanations of the flags, along with how likely they are to mean cheating
+/// Short explanations of the flags to store alongside them, prefixed with how likely
+/// they are to mean cheating. The docs of the flags explain them in full.
 const EXPLANATIONS: &[(LastFmFlags, &str)] = &[
     (
         LastFmFlags::LdArgument,
-        "[UNKNOWN] osu! was started with an \"ld\" argument. What passes it is unknown.",
+        "[UNKNOWN] Started with ld argument",
     ),
     (
         LastFmFlags::ConsoleWindow,
-        "[LIKELY] A console window was open inside the foreground window when osu! started \
-         (possibly a debugger or a cheat loader).",
+        "[LIKELY] Console window at startup",
     ),
     (
         LastFmFlags::ForeignWindow,
-        "[LIKELY] A thread of the osu! process already owned a window before osu! created its own. \
-         This usually means something has been injected into osu!",
+        "[LIKELY] Foreign window in process",
     ),
     (
         LastFmFlags::HqOsuAssembly,
-        "[CERTAIN] The HQOsu assembly has been loaded into osu!",
+        "[CERTAIN] HQOsu assembly loaded",
     ),
-    (
-        LastFmFlags::HqOsuFile,
-        "[MIXED] HQOsu files are present in the osu! directory.",
-    ),
+    (LastFmFlags::HqOsuFile, "[MIXED] HQOsu files present"),
     (
         LastFmFlags::ImageFileExecutionOptions,
-        "[MIXED] The registry has Image File Execution Options for osu!.exe. These are traces of \
-         the HQOsu Relife multiaccounting tool, meaning the user has used it in the past, \
-         but may not be using it now.",
+        "[MIXED] HQOsu Relife registry traces",
     ),
     (
         LastFmFlags::Sdl2Assembly,
-        "[CERTAIN] An sdl2 assembly was loaded into osu! during play, a trace of an ancient AQN version.",
+        "[CERTAIN] AQN sdl2 assembly loaded",
     ),
     (
         LastFmFlags::Libeay32Assembly,
-        "[CERTAIN] A libeay32 assembly was loaded into osu! during play, \
-         a trace of an ancient AQN version.",
+        "[CERTAIN] AQN libeay32 assembly loaded",
     ),
     (
         LastFmFlags::Notify1Sample,
-        "[CERTAIN] osu! loaded the notify1 sample outside the editor, \
-         which the menu of an ancient AQN version does.",
+        "[CERTAIN] AQN notify1 sample loaded",
     ),
     (
         LastFmFlags::PatchingAssemblyLoaded,
-        "[MIXED] osu! found a loaded assembly whose name contains hqOsu, Harmony, or MonoMod \
-         (case-insensitive).",
+        "[MIXED] Patching assembly loaded",
     ),
     (
         LastFmFlags::ProcessConsoleWindow,
-        "[MIXED] A top-level ConsoleWindowClass window was owned by the osu! process. \
-         This can indicate an injected console or debugging/patching tools.",
+        "[MIXED] Console window in process",
     ),
 ];
 
@@ -111,7 +106,7 @@ impl LastFmFlags {
     fn explain_one(self) -> String {
         match EXPLANATIONS.iter().find(|(flag, _)| *flag == self) {
             Some((_, explanation)) => explanation.to_string(),
-            None => format!("Undocumented Flag: {self:?}"),
+            None => format!("Undocumented flag {:#x}", self.bits()),
         }
     }
 }
@@ -162,19 +157,18 @@ mod tests {
         let flags = LastFmFlags::LdArgument | LastFmFlags::ProcessConsoleWindow;
         assert_eq!(
             flags.explain(),
-            "[UNKNOWN] osu! was started with an \"ld\" argument. What passes it is unknown.\n\
-             [MIXED] A top-level ConsoleWindowClass window was owned by the osu! process. \
-             This can indicate an injected console or debugging/patching tools."
+            "[UNKNOWN] Started with ld argument\n\
+             [MIXED] Console window in process"
         );
     }
 
     #[test]
     fn names_flags_that_have_no_explanation() {
-        let flags = LastFmFlags::from_bits_retain(1 << 11 | 1 << 30);
+        let flags = LastFmFlags::from_bits_retain(1 << 11 | 1 << 31);
         assert_eq!(
             flags.explain(),
-            "Undocumented Flag: LastFmFlags(0x800)\n\
-             Undocumented Flag: LastFmFlags(0x40000000)"
+            "Undocumented flag 0x800\n\
+             Undocumented flag 0x80000000"
         );
     }
 
