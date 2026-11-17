@@ -56,6 +56,35 @@ pub async fn send_ac_embed(
     }
 }
 
+pub async fn send_hw_purple_embed(
+    title: &str,
+    description: &str,
+    url: Option<&str>,
+) -> ServiceResult<()> {
+    send_hw_embed(title, description, url, PURPLE_EMBED_COLOR).await
+}
+
+pub async fn send_hw_embed(
+    title: &str,
+    description: &str,
+    url: Option<&str>,
+    color: u32,
+) -> ServiceResult<()> {
+    let settings = AppSettings::get();
+    match &settings.discord_hw_logs_webhook_url {
+        None => {
+            tracing::warn!(
+                title,
+                description,
+                url,
+                "Discord Hardware Logs Webhook url not set"
+            );
+            Ok(())
+        }
+        Some(webhook_url) => send_embed(webhook_url, title, description, url, color).await,
+    }
+}
+
 pub async fn send_embed(
     webhook_url: &str,
     title: &str,
