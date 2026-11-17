@@ -43,7 +43,9 @@ pub struct AppSettings {
     pub performance_service_base_url: String,
 
     pub frontend_base_url: String,
+    pub discord_logs_webhook_url: Option<String>,
     pub discord_ac_logs_webhook_url: Option<String>,
+    pub discord_hw_logs_webhook_url: Option<String>,
 }
 
 impl AppSettings {
@@ -94,7 +96,9 @@ impl AppSettings {
         let beatmaps_service_base_url = env::var("BEATMAPS_SERVICE_BASE_URL")?;
         let performance_service_base_url = env::var("PERFORMANCE_SERVICE_BASE_URL")?;
         let frontend_base_url = env::var("FRONTEND_URL")?;
+        let discord_logs_webhook_url = optional_var("DISCORD_LOGS_WEBHOOK_URL");
         let discord_ac_logs_webhook_url = optional_var("DISCORD_AC_LOGS_WEBHOOK_URL");
+        let discord_hw_logs_webhook_url = optional_var("DISCORD_HW_LOGS_WEBHOOK_URL");
 
         Ok(AppSettings {
             app_env,
@@ -132,7 +136,9 @@ impl AppSettings {
             beatmaps_service_base_url,
             performance_service_base_url,
             frontend_base_url,
+            discord_logs_webhook_url,
             discord_ac_logs_webhook_url,
+            discord_hw_logs_webhook_url,
         })
     }
 

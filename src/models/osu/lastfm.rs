@@ -1,124 +1,86 @@
 use bitflags::bitflags;
 
 bitflags! {
-    /// The flags the anticheat of the osu! client reports through its last.fm integration
+    /// The checks the osu! client runs against its own process, which it reports through
+    /// its last.fm integration in place of the id of the beatmap it would scrobble.
+    ///
+    /// These are not the anticheat flags of score submission: the client reports these
+    /// checks as an unshifted bitmask, so they start at the lowest bit.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct LastFmFlags: i32 {
-        /// The song speed does not match the time that has elapsed
-        const Timewarp = 1 << 1;
-        const IncorrectModValue = 1 << 2;
-        const MultipleOsuClients = 1 << 3;
-        const ChecksumFail = 1 << 4;
-        const FlashlightChecksumFail = 1 << 5;
-
-        // These two are only ever raised by the server
-        const OsuExeChecksumFail = 1 << 6;
-        const MissingProcess = 1 << 7;
-
-        const FlashlightRemover = 1 << 8;
-        const AutospinHack = 1 << 9;
-        const WindowOverlay = 1 << 10;
-        const FastPress = 1 << 11;
-
-        // Something alters the input between the raw input and what the game receives
-        const MouseDiscrepancy = 1 << 12;
-        const KeyboardDiscrepancy = 1 << 13;
-
-        const LfFlagPresent = 1 << 14;
-        const OsuDebugged = 1 << 15;
-        const ExtraThreads = 1 << 16;
-
-        const HqOsuAssembly = 1 << 17;
-        const HqOsuFile = 1 << 18;
-        const HqOsuRelife = 1 << 19;
-
-        const AqnSql2Lib = 1 << 20;
-        const AqnLibeay32 = 1 << 21;
-        const AqnMenuSound = 1 << 22;
+        /// osu! was started with an `ld` argument
+        const LdArgument = 1 << 0;
+        /// The window in the foreground when osu! started contained a console window,
+        /// possibly a debugger or a cheat loader
+        const ConsoleWindow = 1 << 1;
+        /// A thread of the osu! process owned a window before osu! created any of its own,
+        /// which usually means something has been injected into osu!
+        const ForeignWindow = 1 << 2;
+        /// An assembly named like hq!osu's was loaded when osu! started
+        const HqOsuAssembly = 1 << 3;
+        /// A file named like hq!osu's is in the osu! directory
+        const HqOsuFile = 1 << 4;
+        /// The registry has Image File Execution Options for `osu!.exe`, traces of the
+        /// hq!osu Relife multiaccounting tool. The user has used it, but may not be using it now.
+        const ImageFileExecutionOptions = 1 << 5;
+        /// An assembly named `sdl2` was loaded when a play started, a trace of an ancient AQN
+        const Sdl2Assembly = 1 << 6;
+        /// An assembly named `libeay32` was loaded when a play started, a trace of an ancient AQN
+        const Libeay32Assembly = 1 << 7;
+        /// osu! loaded the `notify1` sample outside the editor, which the menu of an ancient
+        /// AQN does
+        const Notify1Sample = 1 << 8;
+        /// A loaded assembly's name contains `hqOsu`, `Harmony`, or `MonoMod` (case-insensitive)
+        const PatchingAssemblyLoaded = 1 << 9;
+        /// A top-level `ConsoleWindowClass` window is owned by the osu! process, which can be
+        /// an injected console or debugging/patching tools
+        const ProcessConsoleWindow = 1 << 10;
     }
 }
 
-/// Down to earth explanations of the flags, along with how likely they are to mean cheating
+/// Short explanations of the flags to store alongside them, prefixed with how likely
+/// they are to mean cheating. The docs of the flags explain them in full.
 const EXPLANATIONS: &[(LastFmFlags, &str)] = &[
     (
-        LastFmFlags::Timewarp,
-        "[LIKELY] Timewarp flag triggered (audio is desynced from expected position)! \
-         May be caused by lag on the user's end.",
+        LastFmFlags::LdArgument,
+        "[UNKNOWN] Started with ld argument",
     ),
     (
-        LastFmFlags::IncorrectModValue,
-        "[MIXED] The score's mod value didn't match enabled mods \
-         (possible sign of a mod remover such as Hidden remover).",
+        LastFmFlags::ConsoleWindow,
+        "[LIKELY] Console window at startup",
     ),
     (
-        LastFmFlags::MultipleOsuClients,
-        "[MIXED] The user had multiple instances of osu! open.",
-    ),
-    (
-        LastFmFlags::ChecksumFail,
-        "[LIKELY] The score related memory has been edited in a weird manner.",
-    ),
-    (
-        LastFmFlags::FlashlightChecksumFail,
-        "[UNKNOWN] FL Checksum fail occurence is unknown.",
-    ),
-    (
-        LastFmFlags::FlashlightRemover,
-        "[CERTAIN] User is using a flashlight remover.",
-    ),
-    (
-        LastFmFlags::WindowOverlay,
-        "[LIKELY] A transparent window is overlaying the osu! client.",
-    ),
-    (
-        LastFmFlags::FastPress,
-        "[LIKELY] User is consistently hitting notes with a low latency in mania.",
-    ),
-    (
-        LastFmFlags::MouseDiscrepancy,
-        "[LIKELY] Something is altering the mouse position received by the game.",
-    ),
-    (
-        LastFmFlags::KeyboardDiscrepancy,
-        "[LIKELY] Something is altering the keyboard presses received by the game.",
-    ),
-    (
-        LastFmFlags::LfFlagPresent,
-        "[UNKNOWN] LF flag is present. Occurence of this is unknown.",
-    ),
-    (
-        LastFmFlags::OsuDebugged,
-        "[LIKELY] osu! is being debugged. Console attached to the process has been detected.",
-    ),
-    (
-        LastFmFlags::ExtraThreads,
-        "[LIKELY] A foreign thread has been detected attached to osu! \
-         This is a method usually used by cheats to run.",
+        LastFmFlags::ForeignWindow,
+        "[LIKELY] Foreign window in process",
     ),
     (
         LastFmFlags::HqOsuAssembly,
-        "[CERTAIN] The HQOsu assembly has been detected.",
+        "[CERTAIN] HQOsu assembly loaded",
+    ),
+    (LastFmFlags::HqOsuFile, "[MIXED] HQOsu files present"),
+    (
+        LastFmFlags::ImageFileExecutionOptions,
+        "[MIXED] HQOsu Relife registry traces",
     ),
     (
-        LastFmFlags::HqOsuFile,
-        "[MIXED] The presence of HQOsu files has been detected.",
+        LastFmFlags::Sdl2Assembly,
+        "[CERTAIN] AQN sdl2 assembly loaded",
     ),
     (
-        LastFmFlags::HqOsuRelife,
-        "[MIXED] HQOsu Relife traces found in registry. This means that the user has used \
-         the multiaccounting tool in the past, but may not be using it now.",
+        LastFmFlags::Libeay32Assembly,
+        "[CERTAIN] AQN libeay32 assembly loaded",
     ),
     (
-        LastFmFlags::AqnSql2Lib,
-        "[CERTAIN] Ancient AQN library SQL2Lib detected.",
+        LastFmFlags::Notify1Sample,
+        "[CERTAIN] AQN notify1 sample loaded",
     ),
     (
-        LastFmFlags::AqnLibeay32,
-        "[CERTAIN] Use of ancient AQN version detected through library libeay32.dll",
+        LastFmFlags::PatchingAssemblyLoaded,
+        "[MIXED] Patching assembly loaded",
     ),
     (
-        LastFmFlags::AqnMenuSound,
-        "[CERTAIN] Use of ancient AQN version detected through menu sound.",
+        LastFmFlags::ProcessConsoleWindow,
+        "[MIXED] Console window in process",
     ),
 ];
 
@@ -144,7 +106,7 @@ impl LastFmFlags {
     fn explain_one(self) -> String {
         match EXPLANATIONS.iter().find(|(flag, _)| *flag == self) {
             Some((_, explanation)) => explanation.to_string(),
-            None => format!("Undocumented Flag: {self:?}"),
+            None => format!("Undocumented flag {:#x}", self.bits()),
         }
     }
 }
@@ -157,7 +119,23 @@ mod tests {
     fn reads_flags_from_reports_of_the_client() {
         assert_eq!(
             LastFmFlags::from_report("a260"),
-            Some(LastFmFlags::IncorrectModValue | LastFmFlags::FlashlightRemover)
+            Some(LastFmFlags::ForeignWindow | LastFmFlags::Notify1Sample)
+        );
+    }
+
+    #[test]
+    fn reads_assembly_and_process_console_reports() {
+        assert_eq!(
+            LastFmFlags::from_report("a512"),
+            Some(LastFmFlags::PatchingAssemblyLoaded)
+        );
+        assert_eq!(
+            LastFmFlags::from_report("a1024"),
+            Some(LastFmFlags::ProcessConsoleWindow)
+        );
+        assert_eq!(
+            LastFmFlags::from_report("a1536"),
+            Some(LastFmFlags::PatchingAssemblyLoaded | LastFmFlags::ProcessConsoleWindow)
         );
     }
 
@@ -175,22 +153,32 @@ mod tests {
     }
 
     #[test]
-    fn explains_every_raised_flag_including_the_highest() {
-        let flags = LastFmFlags::MultipleOsuClients | LastFmFlags::AqnMenuSound;
+    fn explains_every_raised_flag_including_the_lowest_and_highest() {
+        let flags = LastFmFlags::LdArgument | LastFmFlags::ProcessConsoleWindow;
         assert_eq!(
             flags.explain(),
-            "[MIXED] The user had multiple instances of osu! open.\n\
-             [CERTAIN] Use of ancient AQN version detected through menu sound."
+            "[UNKNOWN] Started with ld argument\n\
+             [MIXED] Console window in process"
         );
     }
 
     #[test]
     fn names_flags_that_have_no_explanation() {
-        let flags = LastFmFlags::AutospinHack | LastFmFlags::from_bits_retain(1 << 30);
+        let flags = LastFmFlags::from_bits_retain(1 << 11 | 1 << 31);
         assert_eq!(
             flags.explain(),
-            "Undocumented Flag: LastFmFlags(AutospinHack)\n\
-             Undocumented Flag: LastFmFlags(0x40000000)"
+            "Undocumented flag 0x800\n\
+             Undocumented flag 0x80000000"
         );
+    }
+
+    #[test]
+    fn explains_every_flag_the_client_reports() {
+        for flag in LastFmFlags::all().iter() {
+            assert!(
+                !flag.explain().starts_with("Undocumented"),
+                "{flag:?} has no explanation"
+            );
+        }
     }
 }
