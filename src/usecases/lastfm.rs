@@ -17,10 +17,16 @@ pub async fn report_flags(
     let explanation = flags.explain();
     lastfm_flags::create(ctx, user.user_id, flags.bits(), &explanation).await?;
 
-    warn!(
-        user_id = user.user_id,
-        flags = ?flags,
-        "User has been flagged by their client:\n{explanation}"
-    );
+    // Exclude this flag's warning from logging for now.
+    if !flags
+        .difference(LastFmFlags::PatchingAssemblyLoaded)
+        .is_empty()
+    {
+        warn!(
+            user_id = user.user_id,
+            flags = ?flags,
+            "User has been flagged by their client:\n{explanation}"
+        );
+    }
     Ok(())
 }
