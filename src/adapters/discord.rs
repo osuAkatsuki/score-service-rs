@@ -16,6 +16,30 @@ const BLUE_EMBED_COLOR: u32 = 0x00a2ff;
 
 static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(super::http_client);
 
+pub async fn send_logs_red_embed(
+    title: &str,
+    description: &str,
+    url: Option<&str>,
+) -> ServiceResult<()> {
+    send_logs_embed(title, description, url, RED_EMBED_COLOR).await
+}
+
+pub async fn send_logs_embed(
+    title: &str,
+    description: &str,
+    url: Option<&str>,
+    color: u32,
+) -> ServiceResult<()> {
+    let settings = AppSettings::get();
+    match &settings.discord_logs_webhook_url {
+        None => {
+            tracing::warn!(title, description, url, "Discord Logs Webhook url not set");
+            Ok(())
+        }
+        Some(webhook_url) => send_embed(webhook_url, title, description, url, color).await,
+    }
+}
+
 pub async fn send_ac_purple_embed(
     title: &str,
     description: &str,
@@ -49,7 +73,12 @@ pub async fn send_ac_embed(
     let settings = AppSettings::get();
     match &settings.discord_ac_logs_webhook_url {
         None => {
-            tracing::warn!(title, description, url, "Discord Logs Webhook url not set");
+            tracing::warn!(
+                title,
+                description,
+                url,
+                "Discord Anticheat Logs Webhook url not set"
+            );
             Ok(())
         }
         Some(webhook_url) => send_embed(webhook_url, title, description, url, color).await,

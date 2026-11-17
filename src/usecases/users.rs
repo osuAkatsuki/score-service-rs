@@ -98,7 +98,8 @@ pub async fn restrict_user(ctx: &RequestContext, user_id: i64, reason: &str) -> 
     let task_reason = reason.to_owned();
     ctx.spawn(async move {
         let profile_link = website::get_profile_link(user_id);
-        _ = discord::send_ac_red_embed("User restricted", &task_reason, Some(&profile_link)).await;
+        _ = discord::send_logs_red_embed("User restricted", &task_reason, Some(&profile_link))
+            .await;
     });
     Ok(())
 }
