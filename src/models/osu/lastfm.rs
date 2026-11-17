@@ -4,8 +4,8 @@ bitflags! {
     /// The checks the osu! client runs against its own process, which it reports through
     /// its last.fm integration in place of the id of the beatmap it would scrobble.
     ///
-    /// These are not the anticheat flags of score submission: the client sends the value
-    /// of these checks as is (`OsuMain.startupValue`), so they start at the lowest bit.
+    /// These are not the anticheat flags of score submission: the client reports these
+    /// checks as an unshifted bitmask, so they start at the lowest bit.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct LastFmFlags: i32 {
         /// osu! was started with an `ld` argument
@@ -26,6 +26,10 @@ bitflags! {
         const Libeay32Assembly = 1 << 7;
         /// osu! loaded the `notify1` sample outside the editor
         const Notify1Sample = 1 << 8;
+        /// A loaded assembly's name contains `hqOsu`, `Harmony`, or `MonoMod` (case-insensitive)
+        const PatchingAssemblyLoaded = 1 << 9;
+        /// A top-level `ConsoleWindowClass` window is owned by the osu! process
+        const ProcessConsoleWindow = 1 << 10;
     }
 }
 
@@ -73,6 +77,16 @@ const EXPLANATIONS: &[(LastFmFlags, &str)] = &[
         "[CERTAIN] osu! loaded the notify1 sample outside the editor, \
          which the menu of an ancient AQN version does.",
     ),
+    (
+        LastFmFlags::PatchingAssemblyLoaded,
+        "[MIXED] osu! found a loaded assembly whose name contains hqOsu, Harmony, or MonoMod \
+         (case-insensitive).",
+    ),
+    (
+        LastFmFlags::ProcessConsoleWindow,
+        "[MIXED] A top-level ConsoleWindowClass window was owned by the osu! process. \
+         This can indicate an injected console or debugging/patching tools.",
+    ),
 ];
 
 impl LastFmFlags {
@@ -115,6 +129,22 @@ mod tests {
     }
 
     #[test]
+    fn reads_assembly_and_process_console_reports() {
+        assert_eq!(
+            LastFmFlags::from_report("a512"),
+            Some(LastFmFlags::PatchingAssemblyLoaded)
+        );
+        assert_eq!(
+            LastFmFlags::from_report("a1024"),
+            Some(LastFmFlags::ProcessConsoleWindow)
+        );
+        assert_eq!(
+            LastFmFlags::from_report("a1536"),
+            Some(LastFmFlags::PatchingAssemblyLoaded | LastFmFlags::ProcessConsoleWindow)
+        );
+    }
+
+    #[test]
     fn does_not_mistake_scrobbled_beatmaps_for_reports() {
         assert_eq!(LastFmFlags::from_report("75"), None);
         assert_eq!(LastFmFlags::from_report(""), None);
@@ -129,21 +159,21 @@ mod tests {
 
     #[test]
     fn explains_every_raised_flag_including_the_lowest_and_highest() {
-        let flags = LastFmFlags::LdArgument | LastFmFlags::Notify1Sample;
+        let flags = LastFmFlags::LdArgument | LastFmFlags::ProcessConsoleWindow;
         assert_eq!(
             flags.explain(),
             "[UNKNOWN] osu! was started with an \"ld\" argument. What passes it is unknown.\n\
-             [CERTAIN] osu! loaded the notify1 sample outside the editor, \
-             which the menu of an ancient AQN version does."
+             [MIXED] A top-level ConsoleWindowClass window was owned by the osu! process. \
+             This can indicate an injected console or debugging/patching tools."
         );
     }
 
     #[test]
     fn names_flags_that_have_no_explanation() {
-        let flags = LastFmFlags::from_bits_retain(1 << 9 | 1 << 30);
+        let flags = LastFmFlags::from_bits_retain(1 << 11 | 1 << 30);
         assert_eq!(
             flags.explain(),
-            "Undocumented Flag: LastFmFlags(0x200)\n\
+            "Undocumented Flag: LastFmFlags(0x800)\n\
              Undocumented Flag: LastFmFlags(0x40000000)"
         );
     }
