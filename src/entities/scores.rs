@@ -63,7 +63,6 @@ pub struct CreateScoreArgs<'a> {
     pub mods: Mods,
     pub performance: f32,
     pub score_md5: &'a str,
-    pub status: ScoreStatus,
 }
 
 #[derive(Clone)]

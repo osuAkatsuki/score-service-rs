@@ -385,7 +385,7 @@ pub async fn submit(
             false => ScoreStatus::Failed,
         };
         scores::create(
-            &ctx,
+            &ctx.db,
             CreateScoreArgs {
                 user_id: user.user_id,
                 beatmap_md5: &beatmap.beatmap_md5,
@@ -397,8 +397,8 @@ pub async fn submit(
                 mods: sanitized_mods,
                 performance: 0.0,
                 score_md5: &args.score.score_md5,
-                status,
             },
+            status,
         )
         .await?;
         stats::update(&ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -424,7 +424,7 @@ pub async fn submit(
     // The score is kept as a pass that is worth nothing until its performance is recalculated.
     let Ok(performance) = performance else {
         let score = scores::create(
-            &ctx,
+            &ctx.db,
             CreateScoreArgs {
                 user_id: user.user_id,
                 beatmap_md5: &beatmap.beatmap_md5,
@@ -436,8 +436,8 @@ pub async fn submit(
                 mods: sanitized_mods,
                 performance: 0.0,
                 score_md5: &args.score.score_md5,
-                status: ScoreStatus::Completed,
             },
+            ScoreStatus::Completed,
         )
         .await?;
         // The client submits the replay only once, so it is stored even though the score is worth nothing yet
@@ -449,45 +449,8 @@ pub async fn submit(
             score_id: score.score_id,
         });
     };
-    let personal_best =
-        scores::fetch_user_best(&ctx, user.user_id, &beatmap.beatmap_md5, modded_gamemode).await?;
-
-    let calculated_grade = args
-        .score
-        .stats
-        .accuracy
-        .grade(args.score.stats.mode, sanitized_mods);
-    // Loved and qualified beatmaps have leaderboards, but do not count towards the stats of a user
-    let is_ranked = beatmap.is_ranked();
-    let status = match &personal_best {
-        None => {
-            if is_ranked {
-                update_stats.adjust_ranked_score(args.score.stats.score);
-                update_stats.increment_grade(calculated_grade);
-            }
-            ScoreStatus::Best
-        }
-        Some(pb)
-            if pb.performance < performance.pp
-                || (pb.performance == performance.pp && pb.score < args.score.stats.score) =>
-        {
-            scores::set_to_completed(&ctx, pb.score_id, modded_gamemode).await?;
-            let pb_calculated_grade = pb.accuracy.grade(pb.mode.as_gamemode(), pb.mods);
-            if is_ranked {
-                let ranked_score_change = args.score.stats.score - pb.score;
-                update_stats.adjust_ranked_score(ranked_score_change);
-            }
-            if is_ranked && calculated_grade != pb_calculated_grade {
-                update_stats.decrement_grade(pb_calculated_grade);
-                update_stats.increment_grade(calculated_grade);
-            }
-            ScoreStatus::Best
-        }
-        Some(_) => ScoreStatus::Completed,
-    };
-
-    let score = scores::create(
-        &ctx,
+    let (score, personal_best) = scores::create_with_personal_best(
+        &ctx.db,
         CreateScoreArgs {
             user_id: user.user_id,
             beatmap_md5: &beatmap.beatmap_md5,
@@ -499,10 +462,30 @@ pub async fn submit(
             mods: sanitized_mods,
             performance: performance.pp,
             score_md5: &args.score.score_md5,
-            status,
         },
     )
     .await?;
+
+    // Loved and qualified beatmaps have leaderboards, but do not count towards the stats of a user.
+    let is_ranked = beatmap.is_ranked();
+    if is_ranked && score.status == ScoreStatus::Best {
+        let grade = score.accuracy.grade(score.mode.as_gamemode(), score.mods);
+        match &personal_best {
+            Some(best) => {
+                update_stats.adjust_ranked_score(score.score - best.score);
+                let previous_grade = best.accuracy.grade(best.mode.as_gamemode(), best.mods);
+                if grade != previous_grade {
+                    update_stats.decrement_grade(previous_grade);
+                    update_stats.increment_grade(grade);
+                }
+            }
+            None => {
+                update_stats.adjust_ranked_score(score.score);
+                update_stats.increment_grade(grade);
+            }
+        }
+    }
+
     info!(
         user_id = user.user_id,
         score_id = score.score_id,
@@ -559,7 +542,7 @@ pub async fn submit(
         ranking_metric(&score),
     )
     .await?;
-    if status == ScoreStatus::Best {
+    if score.status == ScoreStatus::Best {
         if is_ranked {
             let (new_pp, new_avg_acc) =
                 stats::recalculate_weighted(&ctx, user.user_id, modded_gamemode).await?;
