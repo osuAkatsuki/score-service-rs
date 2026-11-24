@@ -50,7 +50,14 @@ impl UserLeaderboardView {
 impl IntoResponse for UserLeaderboardView {
     fn into_response(self) -> Response {
         let osu_formatted = self.osu_format();
-        osu_formatted.into_response()
+        // The osu! client can't tell pp sent in place of scores apart from scores,
+        // so clients that can are told with a header the osu! client ignores
+        match self {
+            UserLeaderboardView::ScoresView(view) if view.display_pp_as_score => {
+                ([("x-ranked-by", "pp")], osu_formatted).into_response()
+            }
+            _ => osu_formatted.into_response(),
+        }
     }
 }
 
@@ -199,6 +206,24 @@ mod tests {
         );
         assert!(!args.aqn_files_found);
         assert!(!args.requesting_from_editor_song_select);
+    }
+
+    #[test]
+    fn says_when_scores_are_pp() {
+        let view = |display_pp_as_score| {
+            UserLeaderboardView::ScoresView(UserLeaderboardScoresView {
+                user_id: 1001,
+                beatmap: beatmap(8.76),
+                total_scores: 1,
+                display_pp_as_score,
+                scores: vec![score(1, 1000, "peppy", None)],
+                personal_best: None,
+            })
+        };
+        let response = view(true).into_response();
+        assert_eq!(response.headers().get("x-ranked-by").unwrap(), "pp");
+        let response = view(false).into_response();
+        assert!(response.headers().get("x-ranked-by").is_none());
     }
 
     #[test]
