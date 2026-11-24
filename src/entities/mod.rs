@@ -1,6 +1,5 @@
 pub mod accuracy;
 pub mod achievements;
-pub mod clients;
 pub mod match_game_scores;
 pub mod mode;
 pub mod mods;
