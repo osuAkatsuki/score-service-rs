@@ -161,8 +161,13 @@ pub async fn submit(
     args: SubmitScoreArgs,
 ) -> ServiceResult<ScoreSubmissionResult> {
     let user = users::fetch_one_and_auth(&ctx, &args.score.username, &args.password_md5).await?;
+    // Until circles is released, only admins may submit scores with it
+    let client = ctx
+        .client()
+        .filter(|client| *client != Client::Circles || user.privileges.is_admin());
+
     // circles has no token to send
-    if args.anticheat_token.is_none() && ctx.client() != Some(Client::Circles) {
+    if args.anticheat_token.is_none() && client != Some(Client::Circles) {
         warn!(user_id = user.user_id, "Anticheat Token is missing");
         ctx.spawn(async move {
             let profile_link = website::get_profile_link(user.user_id);
@@ -175,7 +180,7 @@ pub async fn submit(
         });
     }
 
-    if ctx.client().is_none() {
+    if client.is_none() {
         let reason = format!(
             "Submitted score with unexpected user agent: {}.",
             ctx.user_agent.as_deref().unwrap_or("none")
