@@ -2,6 +2,7 @@ use crate::common::error::{AppError, ServiceResult};
 use crate::common::multipart::{FromMultipart, FromMultipartError, FromMultipartField, Multipart};
 use crate::common::osu::format_bool;
 use crate::entities::accuracy::Accuracy;
+use crate::entities::clients::Client;
 use crate::entities::mode::Gamemode;
 use crate::entities::mods::Mods;
 use crate::models::achievements::Achievement;
@@ -9,6 +10,7 @@ use crate::models::beatmaps::Beatmap;
 use crate::models::osu::charts::Chart;
 use axum::body::Bytes;
 use axum::extract::{FromRequest, Multipart as MultipartExtractor, Request};
+use axum::http::header::USER_AGENT;
 use axum::response::{IntoResponse, Response};
 use bitflags::bitflags;
 use simple_rijndael::Errors as RijndaelError;
@@ -486,10 +488,8 @@ fn decrypt(decryptor: &ScoreDecryptor, iv: &[u8], encrypted_b64: &str) -> Servic
     String::from_utf8(decrypted).map_err(|_| AppError::MalformedRequest)
 }
 
-fn decrypt_score_form(
-    form: ScoreSubmissionForm,
-    anticheat_token: Option<String>,
-) -> ServiceResult<SubmitScoreArgs> {
+/// Decrypts the score and the client hashes of a form, returning them in that order.
+fn decrypt_score_fields(form: &ScoreSubmissionForm) -> ServiceResult<(String, String)> {
     let decryption_key = format!("osu!-scoreburgr---------{}", form.osuver);
     let iv = base64_simd::forgiving_decode_to_vec(form.iv.as_bytes())
         .map_err(|_| AppError::MalformedRequest)?;
@@ -498,11 +498,21 @@ fn decrypt_score_form(
     }
 
     let decryptor: ScoreDecryptor = RijndaelCbc::new(decryption_key.as_bytes(), 32)?;
-
     let score = decrypt(&decryptor, &iv, &form.score)?;
-    let score = ScoreAttributes::from_str(&score)?;
-
     let client_info = decrypt(&decryptor, &iv, &form.s)?;
+    Ok((score, client_info))
+}
+
+fn read_score_form(
+    form: ScoreSubmissionForm,
+    anticheat_token: Option<String>,
+    client: Option<Client>,
+) -> ServiceResult<SubmitScoreArgs> {
+    let (score, client_info) = match client {
+        Some(Client::Circles) => (form.score.clone(), form.s.clone()),
+        Some(Client::Osu) | None => decrypt_score_fields(&form)?,
+    };
+    let score = ScoreAttributes::from_str(&score)?;
     let client_info = ClientHashes::from_str(&client_info)?;
 
     /*let visual_settings = decrypt(&decryptor, &iv, &form.fs)?;
@@ -553,9 +563,14 @@ impl<S: Send + Sync> FromRequest<S> for SubmitScoreArgs {
             .get("token")
             .and_then(|token| token.to_str().ok())
             .map(str::to_owned);
+        let client = Client::from_user_agent(
+            req.headers()
+                .get(USER_AGENT)
+                .and_then(|user_agent| user_agent.to_str().ok()),
+        );
 
         match <Multipart<ScoreSubmissionForm>>::from_request(req, state).await {
-            Ok(form) => match decrypt_score_form(form.0, anticheat_token) {
+            Ok(form) => match read_score_form(form.0, anticheat_token, client) {
                 Ok(args) => Ok(args),
                 Err(AppError::Unexpected) => Err(ScoreSubmissionError::Retry),
                 Err(_) => {
@@ -730,7 +745,7 @@ mod tests {
 
     #[test]
     fn decrypts_the_score_of_a_submission() {
-        let args = decrypt_score_form(form(SCORE_PAYLOAD), None).unwrap();
+        let args = read_score_form(form(SCORE_PAYLOAD), None, Some(Client::Osu)).unwrap();
 
         assert_eq!(args.score.username, "cmyui");
         assert!(args.score.is_donor_flag);
@@ -762,9 +777,29 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_plain_text_score_of_circles() {
+        let encrypted = read_score_form(form(SCORE_PAYLOAD), None, Some(Client::Osu)).unwrap();
+        let plain = read_score_form(
+            ScoreSubmissionForm {
+                score: SCORE_PAYLOAD.to_owned(),
+                s: CLIENT_PAYLOAD.to_owned(),
+                iv: String::new(),
+                ..form(SCORE_PAYLOAD)
+            },
+            None,
+            Some(Client::Circles),
+        )
+        .unwrap();
+
+        assert_eq!(plain.score_md5(), encrypted.score_md5());
+        assert_eq!(plain.score.score_md5, encrypted.score.score_md5);
+        assert_eq!(plain.client_info.uninstall_md5, "uninstall_md5");
+    }
+
+    #[test]
     fn reads_anticheat_flags_from_the_padding_of_the_version() {
         let payload = format!("{SCORE_PAYLOAD}  ");
-        let args = decrypt_score_form(form(&payload), None).unwrap();
+        let args = read_score_form(form(&payload), None, Some(Client::Osu)).unwrap();
         assert_eq!(args.score.stats.osu_version, "20231111");
         assert_eq!(args.score.stats.score_flags, ScoreFlags::SpeedHackDetected);
     }
@@ -772,7 +807,7 @@ mod tests {
     #[test]
     fn rejects_scores_with_missing_fields() {
         let payload = "a5b99395a42bd55bc5eb1d2411cbdf8b:cmyui:checksum:300:10:5";
-        let result = decrypt_score_form(form(payload), None);
+        let result = read_score_form(form(payload), None, Some(Client::Osu));
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
@@ -780,7 +815,7 @@ mod tests {
     fn rejects_forms_that_were_not_encrypted_for_their_version() {
         let mut form = form(SCORE_PAYLOAD);
         form.osuver = "20200101".to_owned();
-        let result = decrypt_score_form(form, None);
+        let result = read_score_form(form, None, Some(Client::Osu));
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 
@@ -788,7 +823,7 @@ mod tests {
     fn rejects_forms_without_a_score() {
         let mut form = form(SCORE_PAYLOAD);
         form.score = String::new();
-        let result = decrypt_score_form(form, None);
+        let result = read_score_form(form, None, Some(Client::Osu));
         assert!(matches!(result, Err(AppError::MalformedRequest)));
     }
 

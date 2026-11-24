@@ -4,6 +4,7 @@ use crate::common::axum_ip::IpAddrInfo;
 use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_pool::RedisPool;
 use crate::common::state::AppState;
+use crate::entities::clients::Client;
 use axum::extract::FromRequestParts;
 use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
@@ -31,6 +32,10 @@ impl RequestContext {
         F: Future<Output = ()> + Send + 'static,
     {
         self.background_tasks.spawn(task);
+    }
+
+    pub fn client(&self) -> Option<Client> {
+        Client::from_user_agent(self.user_agent.as_deref())
     }
 }
 

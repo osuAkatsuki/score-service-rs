@@ -5,6 +5,7 @@ use crate::common::error::{AppError, ServiceResult};
 use crate::common::redis_lock::RedisLock;
 use crate::common::website;
 use crate::entities::accuracy::Accuracy;
+use crate::entities::clients::Client;
 use crate::entities::match_game_scores::CreateMatchGameScoreArgs;
 use crate::entities::mode::{Gamemode, GamemodeMod, ModdedGamemode};
 use crate::entities::mods::Mods;
@@ -160,7 +161,8 @@ pub async fn submit(
     args: SubmitScoreArgs,
 ) -> ServiceResult<ScoreSubmissionResult> {
     let user = users::fetch_one_and_auth(&ctx, &args.score.username, &args.password_md5).await?;
-    if args.anticheat_token.is_none() {
+    // circles has no token to send
+    if args.anticheat_token.is_none() && ctx.client() != Some(Client::Circles) {
         warn!(user_id = user.user_id, "Anticheat Token is missing");
         ctx.spawn(async move {
             let profile_link = website::get_profile_link(user.user_id);
@@ -173,7 +175,7 @@ pub async fn submit(
         });
     }
 
-    if ctx.user_agent.as_deref() != Some("osu!") {
+    if ctx.client().is_none() {
         let reason = format!(
             "Submitted score with unexpected user agent: {}.",
             ctx.user_agent.as_deref().unwrap_or("none")
