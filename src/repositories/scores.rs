@@ -6,13 +6,13 @@ use crate::entities::scores::{
 use crate::settings::AppSettings;
 use chrono::Utc;
 use sqlx::mysql::MySqlArguments;
-use sqlx::{Arguments, MySqlConnection, MySqlExecutor, MySqlPool};
+use sqlx::{Arguments, MySqlConnection};
 
-pub async fn create<'e>(
-    executor: impl MySqlExecutor<'e>,
+/// Returns the saved score and the previous best if submitted as `Best`.
+pub async fn create(
+    ctx: &RequestContext,
     args: CreateScoreArgs<'_>,
-    status: ScoreStatus,
-) -> sqlx::Result<Score> {
+) -> sqlx::Result<(Score, Option<Score>)> {
     let CreateScoreArgs {
         user_id,
         beatmap_md5,
@@ -24,7 +24,33 @@ pub async fn create<'e>(
         mods,
         performance,
         score_md5,
+        mut status,
     } = args;
+
+    let (transaction, personal_best) = if status == ScoreStatus::Best {
+        let mut transaction = ctx.db.begin().await?;
+        // The player row also locks the first submission, when there is no best yet.
+        sqlx::query("SELECT id FROM users WHERE id = ? FOR UPDATE")
+            .bind(user_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+
+        let personal_best = fetch_user_best(&mut transaction, user_id, beatmap_md5, mode).await?;
+        match &personal_best {
+            Some(best)
+                if best.performance < performance
+                    || (best.performance == performance && best.score < score) =>
+            {
+                set_to_completed(&mut transaction, best.score_id, mode).await?;
+            }
+            Some(_) => status = ScoreStatus::Completed,
+            None => {}
+        }
+        (Some(transaction), personal_best)
+    } else {
+        (None, None)
+    };
+
     let query = format!(
         r#"INSERT INTO {} (
         beatmap_md5, userid, score, max_combo, full_combo, mods,
@@ -36,7 +62,7 @@ pub async fn create<'e>(
     let now = Utc::now();
     let vn_mode = mode.as_gamemode();
     let accuracy_percent = accuracy.as_percent(vn_mode);
-    let query_result = sqlx::query(&query)
+    let insert = sqlx::query(&query)
         .bind(beatmap_md5)
         .bind(user_id)
         .bind(score)
@@ -54,11 +80,16 @@ pub async fn create<'e>(
         .bind(status as u8)
         .bind(accuracy_percent)
         .bind(performance)
-        .bind(score_md5)
-        .execute(executor)
-        .await?;
+        .bind(score_md5);
+    let query_result = if let Some(mut transaction) = transaction {
+        let result = insert.execute(&mut *transaction).await?;
+        transaction.commit().await?;
+        result
+    } else {
+        insert.execute(&ctx.db).await?
+    };
 
-    Ok(Score {
+    let saved = Score {
         mode,
         mods,
         score,
@@ -72,48 +103,8 @@ pub async fn create<'e>(
         max_combo: max_combo as _,
         score_md5: Some(score_md5.to_owned()),
         created_at: now,
-    })
-}
-
-pub async fn create_with_personal_best(
-    db: &MySqlPool,
-    args: CreateScoreArgs<'_>,
-) -> sqlx::Result<(Score, Option<Score>)> {
-    let mut transaction = db.begin().await?;
-
-    // Take a lock that exists even before the player's first score on this map.
-    sqlx::query("SELECT id FROM users WHERE id = ? FOR UPDATE")
-        .bind(args.user_id)
-        .fetch_one(&mut *transaction)
-        .await?;
-
-    let mut personal_bests =
-        fetch_user_bests(&mut transaction, args.user_id, args.beatmap_md5, args.mode)
-            .await?
-            .into_iter();
-    let personal_best = personal_bests.next();
-
-    // Normalize any duplicate bests left by earlier submissions on this map and mode.
-    for duplicate in personal_bests {
-        set_to_completed(&mut transaction, duplicate.score_id, args.mode).await?;
-    }
-
-    let is_best = personal_best.as_ref().is_none_or(|best| {
-        best.performance < args.performance
-            || (best.performance == args.performance && best.score < args.score)
-    });
-    let status = if is_best {
-        if let Some(best) = &personal_best {
-            set_to_completed(&mut transaction, best.score_id, args.mode).await?;
-        }
-        ScoreStatus::Best
-    } else {
-        ScoreStatus::Completed
     };
-    let score = create(&mut *transaction, args, status).await?;
-    transaction.commit().await?;
-
-    Ok((score, personal_best))
+    Ok((saved, personal_best))
 }
 
 /// Builds the part all beatmap leaderboard queries have in common:
@@ -307,12 +298,12 @@ pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> sqlx::Result<Opti
         .await
 }
 
-async fn fetch_user_bests(
+async fn fetch_user_best(
     db: &mut MySqlConnection,
     user_id: i64,
     beatmap_md5: &str,
     mode: ModdedGamemode,
-) -> sqlx::Result<Vec<Score>> {
+) -> sqlx::Result<Option<Score>> {
     let table_name = mode.scores_table();
     let query = format!(
         r#"
@@ -323,7 +314,8 @@ async fn fetch_user_bests(
             AND beatmap_md5 = ?
             AND play_mode = ?
             AND completed = 3
-            ORDER BY pp DESC, score DESC, id ASC
+            ORDER BY pp DESC
+            LIMIT 1
         "#
     );
 
@@ -331,7 +323,7 @@ async fn fetch_user_bests(
         .bind(user_id)
         .bind(beatmap_md5)
         .bind(mode.as_gamemode() as u8)
-        .fetch_all(db)
+        .fetch_optional(db)
         .await
 }
 

@@ -390,7 +390,7 @@ pub async fn submit(
             false => ScoreStatus::Failed,
         };
         scores::create(
-            &ctx.db,
+            &ctx,
             CreateScoreArgs {
                 user_id: user.user_id,
                 beatmap_md5: &beatmap.beatmap_md5,
@@ -402,8 +402,8 @@ pub async fn submit(
                 mods: sanitized_mods,
                 performance: 0.0,
                 score_md5: &args.score.score_md5,
+                status,
             },
-            status,
         )
         .await?;
         stats::update(&ctx, user.user_id, modded_gamemode, &update_stats).await?;
@@ -428,8 +428,8 @@ pub async fn submit(
     // Skip stats calculation if performance calc fails.
     // The score is kept as a pass that is worth nothing until its performance is recalculated.
     let Ok(performance) = performance else {
-        let score = scores::create(
-            &ctx.db,
+        let (score, _) = scores::create(
+            &ctx,
             CreateScoreArgs {
                 user_id: user.user_id,
                 beatmap_md5: &beatmap.beatmap_md5,
@@ -441,8 +441,8 @@ pub async fn submit(
                 mods: sanitized_mods,
                 performance: 0.0,
                 score_md5: &args.score.score_md5,
+                status: ScoreStatus::Completed,
             },
-            ScoreStatus::Completed,
         )
         .await?;
         // The client submits the replay only once, so it is stored even though the score is worth nothing yet
@@ -454,8 +454,8 @@ pub async fn submit(
             score_id: score.score_id,
         });
     };
-    let (score, personal_best) = scores::create_with_personal_best(
-        &ctx.db,
+    let (score, personal_best) = scores::create(
+        &ctx,
         CreateScoreArgs {
             user_id: user.user_id,
             beatmap_md5: &beatmap.beatmap_md5,
@@ -467,6 +467,7 @@ pub async fn submit(
             mods: sanitized_mods,
             performance: performance.pp,
             score_md5: &args.score.score_md5,
+            status: ScoreStatus::Best,
         },
     )
     .await?;

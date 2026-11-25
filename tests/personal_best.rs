@@ -1,9 +1,13 @@
+use score_service::api::context::RequestContext;
+use score_service::common::axum_ip::IpAddrInfo;
+use score_service::common::redis_pool::{RedisPool, RedisPoolManager};
 use score_service::entities::accuracy::Accuracy;
 use score_service::entities::mode::ModdedGamemode;
 use score_service::entities::mods::Mods;
 use score_service::entities::scores::{CreateScoreArgs, ScoreStatus};
 use score_service::repositories::scores;
 use sqlx::MySqlPool;
+use std::net::Ipv4Addr;
 use std::pin::pin;
 use std::time::Duration;
 
@@ -26,25 +30,38 @@ fn play(checksum: &str, score: i32, performance: f32) -> CreateScoreArgs<'_> {
         mods: Mods::empty(),
         performance,
         score_md5: checksum,
+        status: ScoreStatus::Best,
     }
 }
 
 #[sqlx::test(migrations = false, fixtures("personal_best"))]
 #[ignore = "requires a disposable MySQL instance"]
 async fn concurrent_first_plays_leave_one_personal_best(db: MySqlPool) -> sqlx::Result<()> {
-    let mut account_lock = db.begin().await?;
+    let ctx = RequestContext {
+        db,
+        // The Redis pool connects lazily and is unused in this test.
+        redis: RedisPool::builder(RedisPoolManager::new(
+            redis::Client::open("redis://127.0.0.1/").unwrap(),
+            Default::default(),
+        ))
+        .build()
+        .unwrap(),
+        amqp_publisher: None,
+        s3_client: None,
+        achievements: &[],
+        background_tasks: Default::default(),
+        request_ip: IpAddrInfo {
+            ip_addr: Ipv4Addr::LOCALHOST.into(),
+        },
+        user_agent: None,
+    };
+    let mut account_lock = ctx.db.begin().await?;
     sqlx::query("SELECT id FROM users WHERE id = 1 FOR UPDATE")
         .fetch_one(&mut *account_lock)
         .await?;
 
-    let mut first = pin!(scores::create_with_personal_best(
-        &db,
-        play("first", 100, 10.0)
-    ));
-    let mut second = pin!(scores::create_with_personal_best(
-        &db,
-        play("second", 200, 10.0)
-    ));
+    let mut first = pin!(scores::create(&ctx, play("first", 100, 10.0)));
+    let mut second = pin!(scores::create(&ctx, play("second", 200, 10.0)));
 
     // Both submissions must wait for the account lock, even with no best score yet.
     let finished = tokio::time::timeout(Duration::from_millis(250), async {
@@ -59,9 +76,13 @@ async fn concurrent_first_plays_leave_one_personal_best(db: MySqlPool) -> sqlx::
     account_lock.commit().await?;
     tokio::try_join!(first, second)?;
 
+    // A failed replacement must roll back the previous best's demotion.
+    let failed = scores::create(&ctx, play("second", 300, 20.0)).await;
+    assert!(matches!(failed, Err(sqlx::Error::Database(error)) if error.is_unique_violation()));
+
     let rows: Vec<(String, i8)> =
         sqlx::query_as("SELECT checksum, completed FROM scores ORDER BY checksum")
-            .fetch_all(&db)
+            .fetch_all(&ctx.db)
             .await?;
     assert_eq!(
         rows,
@@ -70,40 +91,5 @@ async fn concurrent_first_plays_leave_one_personal_best(db: MySqlPool) -> sqlx::
             ("second".to_owned(), ScoreStatus::Best as i8),
         ]
     );
-    Ok(())
-}
-
-#[sqlx::test(migrations = false, fixtures("personal_best"))]
-#[ignore = "requires a disposable MySQL instance"]
-async fn failed_insert_preserves_previous_best(db: MySqlPool) -> sqlx::Result<()> {
-    let (original, _) = scores::create_with_personal_best(&db, play("original", 100, 10.0)).await?;
-    let result = scores::create_with_personal_best(&db, play("original", 200, 20.0)).await;
-    assert!(matches!(result, Err(sqlx::Error::Database(error)) if error.is_unique_violation()));
-
-    let best_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM scores WHERE completed = 3")
-        .fetch_all(&db)
-        .await?;
-    assert_eq!(best_ids, [original.score_id]);
-    Ok(())
-}
-
-#[sqlx::test(migrations = false, fixtures("personal_best"))]
-#[ignore = "requires a disposable MySQL instance"]
-async fn a_submission_consolidates_existing_bests(db: MySqlPool) -> sqlx::Result<()> {
-    scores::create(&db, play("older", 100, 10.0), ScoreStatus::Best).await?;
-    let best = scores::create(&db, play("higher", 200, 10.0), ScoreStatus::Best).await?;
-
-    let (new_score, previous_best) =
-        scores::create_with_personal_best(&db, play("new", 999, 5.0)).await?;
-
-    assert_eq!(new_score.status, ScoreStatus::Completed);
-    assert_eq!(
-        previous_best.map(|score| score.score_id),
-        Some(best.score_id)
-    );
-    let best_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM scores WHERE completed = 3")
-        .fetch_all(&db)
-        .await?;
-    assert_eq!(best_ids, [best.score_id]);
     Ok(())
 }
