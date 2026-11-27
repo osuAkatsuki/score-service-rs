@@ -58,7 +58,11 @@ fn to_latin1(text: &str) -> String {
 
 /// Adds a line to the notes the staff keeps about the user
 pub async fn add_note(ctx: &RequestContext, user_id: i64, note: &str) -> sqlx::Result<()> {
-    const QUERY: &str = "UPDATE users SET notes = CONCAT(IFNULL(notes, ''), ?) WHERE id = ?";
+    // The line has to be turned into latin1 before it is appended. The statement is prepared
+    // without its values, and the server refuses to mix latin1 with text that may not fit into it.
+    const QUERY: &str = r#"UPDATE users
+    SET notes = CONCAT(IFNULL(notes, ''), CONVERT(? USING latin1))
+    WHERE id = ?"#;
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("\n[{now} UTC] {note}");
     sqlx::query(QUERY)
