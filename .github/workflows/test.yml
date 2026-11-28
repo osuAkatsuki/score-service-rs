@@ -5,6 +5,7 @@ on:
       - main
     paths:
       - "**.rs"
+      - "tests/fixtures/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/test.yml"
@@ -13,6 +14,17 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: score-test
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -22,3 +34,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --locked
+      - name: Run MySQL tests
+        run: cargo test --locked --test personal_best -- --ignored
+        env:
+          DATABASE_URL: mysql://root:score-test@127.0.0.1:${{ job.services.mysql.ports['3306'] }}/mysql

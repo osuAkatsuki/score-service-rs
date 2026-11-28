@@ -1,14 +1,18 @@
 use crate::api::context::RequestContext;
 use crate::entities::mode::{GamemodeMod, ModdedGamemode};
 use crate::entities::scores::{
-    CreateScoreArgs, LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric,
+    CreateScoreArgs, LeaderboardFilter, LeaderboardScore, Score, ScoreRankingMetric, ScoreStatus,
 };
 use crate::settings::AppSettings;
 use chrono::Utc;
 use sqlx::Arguments;
 use sqlx::mysql::MySqlArguments;
 
-pub async fn create(ctx: &RequestContext, args: CreateScoreArgs<'_>) -> sqlx::Result<Score> {
+/// Returns the saved score and the previous best if submitted as `Best`.
+pub async fn create(
+    ctx: &RequestContext,
+    args: CreateScoreArgs<'_>,
+) -> sqlx::Result<(Score, Option<Score>)> {
     let CreateScoreArgs {
         user_id,
         beatmap_md5,
@@ -20,20 +24,67 @@ pub async fn create(ctx: &RequestContext, args: CreateScoreArgs<'_>) -> sqlx::Re
         mods,
         performance,
         score_md5,
-        status,
+        mut status,
     } = args;
+
+    let table_name = mode.scores_table();
+    let vn_mode = mode.as_gamemode();
+    let (transaction, personal_best) = if status == ScoreStatus::Best {
+        let mut transaction = ctx.db.begin().await?;
+        // The player row also locks the first submission, when there is no best yet.
+        sqlx::query("SELECT id FROM users WHERE id = ? FOR UPDATE")
+            .bind(user_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+
+        let query = format!(
+            r#"
+                SELECT id, beatmap_md5, userid, score, max_combo, full_combo, mods,
+                300_count, 100_count, 50_count, katus_count, gekis_count, misses_count,
+                time, play_mode, completed, pp, checksum FROM {table_name}
+                WHERE userid = ?
+                AND beatmap_md5 = ?
+                AND play_mode = ?
+                AND completed = 3
+                ORDER BY pp DESC
+                LIMIT 1
+            "#
+        );
+        let personal_best: Option<Score> = sqlx::query_as(&query)
+            .bind(user_id)
+            .bind(beatmap_md5)
+            .bind(vn_mode as u8)
+            .fetch_optional(&mut *transaction)
+            .await?;
+        match &personal_best {
+            Some(best)
+                if best.performance < performance
+                    || (best.performance == performance && best.score < score) =>
+            {
+                let query = format!("UPDATE {table_name} SET completed = 2 WHERE id = ?");
+                sqlx::query(&query)
+                    .bind(best.score_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            }
+            Some(_) => status = ScoreStatus::Completed,
+            None => {}
+        }
+        (Some(transaction), personal_best)
+    } else {
+        (None, None)
+    };
+
     let query = format!(
-        r#"INSERT INTO {} (
+        r#"INSERT INTO {table_name} (
         beatmap_md5, userid, score, max_combo, full_combo, mods,
         300_count, 100_count, 50_count, katus_count, gekis_count, misses_count,
         time, play_mode, completed, accuracy, pp, checksum
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-        mode.scores_table(),
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
     );
     let now = Utc::now();
-    let vn_mode = mode.as_gamemode();
     let accuracy_percent = accuracy.as_percent(vn_mode);
-    let query_result = sqlx::query(&query)
+    let insert = sqlx::query(&query)
         .bind(beatmap_md5)
         .bind(user_id)
         .bind(score)
@@ -47,15 +98,20 @@ pub async fn create(ctx: &RequestContext, args: CreateScoreArgs<'_>) -> sqlx::Re
         .bind(accuracy.count_geki)
         .bind(accuracy.count_miss)
         .bind(now.timestamp())
-        .bind(mode.as_gamemode() as u8)
+        .bind(vn_mode as u8)
         .bind(status as u8)
         .bind(accuracy_percent)
         .bind(performance)
-        .bind(score_md5)
-        .execute(&ctx.db)
-        .await?;
+        .bind(score_md5);
+    let query_result = if let Some(mut transaction) = transaction {
+        let result = insert.execute(&mut *transaction).await?;
+        transaction.commit().await?;
+        result
+    } else {
+        insert.execute(&ctx.db).await?
+    };
 
-    Ok(Score {
+    let saved = Score {
         mode,
         mods,
         score,
@@ -69,7 +125,8 @@ pub async fn create(ctx: &RequestContext, args: CreateScoreArgs<'_>) -> sqlx::Re
         max_combo: max_combo as _,
         score_md5: Some(score_md5.to_owned()),
         created_at: now,
-    })
+    };
+    Ok((saved, personal_best))
 }
 
 /// Builds the part all beatmap leaderboard queries have in common:
@@ -263,35 +320,6 @@ pub async fn fetch_one(ctx: &RequestContext, score_id: i64) -> sqlx::Result<Opti
         .await
 }
 
-pub async fn fetch_user_best(
-    ctx: &RequestContext,
-    user_id: i64,
-    beatmap_md5: &str,
-    mode: ModdedGamemode,
-) -> sqlx::Result<Option<Score>> {
-    let table_name = mode.scores_table();
-    let query = format!(
-        r#"
-            SELECT id, beatmap_md5, userid, score, max_combo, full_combo, mods,
-            300_count, 100_count, 50_count, katus_count, gekis_count, misses_count,
-            time, play_mode, completed, pp, checksum FROM {table_name}
-            WHERE userid = ?
-            AND beatmap_md5 = ?
-            AND play_mode = ?
-            AND completed = 3
-            ORDER BY pp DESC
-            LIMIT 1
-        "#
-    );
-
-    sqlx::query_as(&query)
-        .bind(user_id)
-        .bind(beatmap_md5)
-        .bind(mode.as_gamemode() as u8)
-        .fetch_optional(&ctx.db)
-        .await
-}
-
 pub async fn fetch_user_top_plays(
     ctx: &RequestContext,
     user_id: i64,
@@ -319,19 +347,6 @@ pub async fn fetch_user_top_plays(
         .bind(user_id)
         .fetch_all(&ctx.db)
         .await
-}
-
-pub async fn set_to_completed(
-    ctx: &RequestContext,
-    score_id: i64,
-    mode: ModdedGamemode,
-) -> sqlx::Result<()> {
-    let query = format!(
-        "UPDATE {} SET completed = 2 WHERE id = ?",
-        mode.scores_table()
-    );
-    sqlx::query(&query).bind(score_id).execute(&ctx.db).await?;
-    Ok(())
 }
 
 pub async fn fetch_user_ranked_scores_count(
